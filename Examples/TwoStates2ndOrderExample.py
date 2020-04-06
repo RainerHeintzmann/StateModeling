@@ -33,6 +33,7 @@ else:
     otype = "adam" # "adagrad"  "adadelta" "SGD" "nesterov"  "adam"
     learnrate = {"nesterov": 1e-9, "adam": 7e-6}
     oparam = {"learning_rate": learnrate[otype]}
+
 fittedVars, fittedRes = M.fit({'detected': measured}, Tmax, otype=otype, oparam=oparam, NIter=150, verbose=True, lossScale=lossScale)
 
 M.compareFit()

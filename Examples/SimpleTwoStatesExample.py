@@ -2,7 +2,7 @@
 import StateModeling as stm
 
 M = stm.Model()  # creates a new Model instance
-M.newState(name='S0', axesInit=0.0)  # ground state
+M.newState(name='S0', axesInit=)  # ground state
 S1 = M.newVariables({'S1': 1.0})  # transition rate
 M.newState(name='S1', axesInit=S1)  # excited state. Systems starts in the excited state
 true_I0 = 1200; true_k = 0.135
@@ -16,11 +16,11 @@ M.toFit(['k', 'S1'])   # fitting S1 works, but not fitting I0 !
 # simulate data
 
 Tmax = 80
-measured = M.simulate('measured', {'detected': 0}, Tmax=Tmax, applyPoisson=True)
+measured = M.simulate('measured', {'detected': None}, Tmax=Tmax, applyPoisson=True)
 
 # Fit with distorted starting values
 M.relDistort({'k':0.8, 'I0':1.2})
-distorted = M.simulate('distorted', {'detected': 0}, Tmax=Tmax)
+distorted = M.simulate('distorted', {'detected': None}, Tmax=Tmax)
 
 if True:
     otype = "L-BFGS"
