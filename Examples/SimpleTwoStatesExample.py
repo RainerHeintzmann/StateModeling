@@ -1,8 +1,8 @@
 # This example is written for the new interface
 import StateModeling as stm
-
+NumMolecules=4
 M = stm.Model()  # creates a new Model instance
-M.newState(name='S0', axesInit=)  # ground state
+M.newState(name='S0', axesInit=0.0)  # ground state
 S1 = M.newVariables({'S1': 1.0})  # transition rate
 M.newState(name='S1', axesInit=S1)  # excited state. Systems starts in the excited state
 true_I0 = 1200; true_k = 0.135
@@ -24,11 +24,9 @@ distorted = M.simulate('distorted', {'detected': None}, Tmax=Tmax)
 
 if True:
     otype = "L-BFGS"
-    lossScale = 1e5
 else:
-    lossScale = None
     otype = "adagrad" # "adadelta" "SGD" "nesterov"  "adam"
-fittedVars, fittedRes = M.fit({'detected': measured}, Tmax, otype=otype, NIter=150, verbose=True,  lossScale=lossScale)
+fittedVars, fittedRes = M.fit({'detected': measured}, Tmax, otype=otype, NIter=150, verbose=True)
 
 M.showResults(ylabel='Intensity')
 M.showStates()

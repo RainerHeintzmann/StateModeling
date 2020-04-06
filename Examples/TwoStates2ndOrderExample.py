@@ -26,15 +26,15 @@ distorted = M.simulate('distorted', {'detected': 0}, Tmax=Tmax)
 
 if True:
     otype = "L-BFGS"
-    lossScale = 1e6 # 1e4
-    oparam = {"normFac":None}
+    # lossScale = 1e6 # 1e4
+    oparam = {} # "normFac":None
 else:
-    lossScale = None
+    # lossScale = None
     otype = "adam" # "adagrad"  "adadelta" "SGD" "nesterov"  "adam"
     learnrate = {"nesterov": 1e-9, "adam": 7e-6}
     oparam = {"learning_rate": learnrate[otype]}
 
-fittedVars, fittedRes = M.fit({'detected': measured}, Tmax, otype=otype, oparam=oparam, NIter=150, verbose=True, lossScale=lossScale)
+fittedVars, fittedRes = M.fit({'detected': measured}, Tmax, otype=otype, oparam=oparam, NIter=150, verbose=True)
 
 M.compareFit()
 M.showResults(ylabel='occupancy')
