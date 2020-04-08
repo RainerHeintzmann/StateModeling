@@ -3,5 +3,5 @@ activate StateModeling
 pip install --upgrade pip
 pip install --upgrade tensorflow
 pip install --upgrade tensorflow-probability
-pip install --upgrade matplotlib
-pip install --upgrade pandas
+pip install --upgrade matplotlib pandas python-dotenv xlrd
+# DateTime
