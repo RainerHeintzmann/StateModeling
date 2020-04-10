@@ -14,13 +14,15 @@ import os
 import requests
 from datetime import datetime, timedelta
 
+
 class DataLoader(object):
     def __init__(self):
         load_dotenv()
 
     def pull_data(self, uri='http://ec2-3-122-224-7.eu-central-1.compute.amazonaws.com:8080/daily_data'):
         return requests.get(uri).json()
-#        return requests.get('http://ec2-3-122-224-7.eu-central-1.compute.amazonaws.com:8080/daily_data').json()
+
+    #        return requests.get('http://ec2-3-122-224-7.eu-central-1.compute.amazonaws.com:8080/daily_data').json()
     def get_new_data(self):
         uri = "http://ec2-3-122-224-7.eu-central-1.compute.amazonaws.com:8080/data"
         json_data = self.pull_data(uri)
@@ -29,7 +31,7 @@ class DataLoader(object):
         for x in json_data["fields"]:
             column_names.append(x["name"])
         df = pd.DataFrame(table, columns=column_names)
-        df["day"] = [datetime.fromtimestamp(x["$date"]/1000) for x in df["day"].values]
+        df["day"] = [datetime.fromtimestamp(x["$date"] / 1000) for x in df["day"].values]
         df["id"] = df["latitude"].apply(lambda x: str(x)) + "_" + df["longitude"].apply(lambda x: str(x))
         unique_ids = df["id"].unique()
         regions = {}
@@ -37,6 +39,7 @@ class DataLoader(object):
             regions[x] = {}
             regions[x]["data_fit"] = df[df["id"] == x]
         return regions, df
+
 
 NumberTypes = (int, float, complex, np.ndarray, np.generic)
 
@@ -120,8 +123,8 @@ def optimizer(loss, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_ra
     Example
     -------
     """
-    if NIter <= 0:
-        raise ValueError("nIter has to be positive")
+    if NIter < 0:
+        raise ValueError("NIter has to be positive or zero")
     optimStep = 0
     if (var_list is not None) and not np.iterable(var_list):
         var_list = [var_list]
@@ -168,13 +171,31 @@ def optimizer(loss, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_ra
         # convert initial model parameters to a 1D tf.Tensor
         init_params = func.initParams()  # retrieve the (normalized) initialization parameters
         # use the L-BFGS solver
-        myOptimizer = lambda: tfp.optimizer.lbfgs_minimize(value_and_gradients_function=func,
-                                                           initial_position=init_params,
-                                                           max_iterations=NIter)
-        # f_relative_tolerance = 1e-6,
+        myOptimizer = lambda: LBFGSWrapper(func, init_params, NIter)
+        # myOptimizer = lambda: tfp.optimizer.lbfgs_minimize(value_and_gradients_function=func,
+        #                                                    initial_position=init_params,
+        #                                                    tolerance=1e-8,
+        #                                                    max_iterations=NIter)
+        # # f_relative_tolerance = 1e-6,
         return myOptimizer  # 'L-BFGS'
     else:
         raise ValueError('Unknown optimizer: ' + otype)
+
+
+def LBFGSWrapper(func, init_params, NIter):
+    optim_results = tfp.optimizer.lbfgs_minimize(value_and_gradients_function=func,
+                                                         initial_position=init_params,
+                                                         tolerance=1e-8,
+                                                         max_iterations=NIter)
+    # f_relative_tolerance = 1e-6
+    # converged, failed,  num_objective_evaluations, final_loss, final_gradient, position_deltas,  gradient_deltas
+    if not optim_results.converged:
+        print("WARNING: optimization did not converge")
+    if optim_results.failed:
+        print("WARNING: lines search failed during iterations")
+    res = optim_results.position
+    func.assign_new_model_parameters(res)
+    return optim_results.objective_value
 
 
 def Reset():
@@ -316,6 +337,7 @@ def doCheckScaling(fwd, meas):
 
 
 # %% this section defines a number of loss functions. Note that they often need fixed input arguments for measured data and sometimes more parameters
+@tf.function
 def Loss_FixedGaussian(fwd, meas, lossDataType=None, checkScaling=False):
     if lossDataType is None:
         lossDataType = defaultLossDataType
@@ -332,20 +354,26 @@ def Loss_FixedGaussian(fwd, meas, lossDataType=None, checkScaling=False):
             return tf.reduce_mean(input_tensor=tf.cast(tf.square(fwd - meas), lossDataType)) / tf.reduce_mean(
                 input_tensor=tf.cast(meas, lossDataType))  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
 
-
+# @tf.function
 def Loss_ScaledGaussianReadNoise(fwd, meas, RNV=1.0, lossDataType=None, checkScaling=False):
     if lossDataType is None:
         lossDataType = defaultLossDataType
     if checkScaling:
         fwd = doCheckScaling(fwd, meas)
-    offsetcorr = tf.cast(np.mean(np.log(meas + RNV)), lossDataType)  # this was added to have the ideal fit yield a loss equal to zero
+    offsetcorr = tf.cast(tf.reduce_mean(tf.math.log(meas + RNV)), lossDataType)  # this was added to have the ideal fit yield a loss equal to zero
 
-    with tf.compat.v1.name_scope('Loss_ScaledGaussianReadNoise'):
-        XMinusMu = tf.cast(meas - fwd, lossDataType)
-        muPlusC = tf.cast(fwd + RNV, lossDataType)
-        Fwd = tf.math.log(muPlusC) + tf.square(XMinusMu) / muPlusC
-        #       Grad=Grad.*(1.0-2.0*XMinusMu-XMinusMu.^2./muPlusC)./muPlusC;
-        return tf.reduce_mean(input_tensor=Fwd) - offsetcorr  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
+    # with tf.compat.v1.name_scope('Loss_ScaledGaussianReadNoise'):
+    XMinusMu = tf.cast(meas - fwd, lossDataType)
+    muPlusC = tf.cast(fwd + RNV, lossDataType)
+    Fwd = tf.math.log(muPlusC) + tf.square(XMinusMu) / muPlusC
+    #       Grad=Grad.*(1.0-2.0*XMinusMu-XMinusMu.^2./muPlusC)./muPlusC;
+    Fwd = tf.reduce_mean(input_tensor=Fwd)
+    if tf.math.is_nan(Fwd):
+        if tf.reduce_any(muPlusC == 0):
+            raise ValueError("Division by zero.")
+        else:
+            raise ValueError("Nan encountered.")
+    return Fwd - offsetcorr  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
 
 
 # @tf.custom_gradient
@@ -370,7 +398,7 @@ def Loss_Poisson(fwd, meas, Bg=0.05, checkPos=False, lossDataType=None, checkSca
         #        return totalError,grad
         return totalError
 
-
+@tf.function
 def Loss_Poisson2(fwd, meas, Bg=0.05, checkPos=False, lossDataType=None, checkScaling=False):
     if lossDataType is None:
         lossDataType = defaultLossDataType
@@ -400,6 +428,7 @@ def Loss_Poisson2(fwd, meas, Bg=0.05, checkPos=False, lossDataType=None, checkSc
         return totalError, grad
 
     return BarePoisson(fwd) / meanmeas
+
 
 # ---- End of code from the inverse Modelling Toolbox
 
@@ -457,7 +486,7 @@ def cumulate(rki_data, df):
         if myId not in ValidIDs:
             myLK = row['Landkreis']
             if myId not in toDropID:
-                print("WARNING: RKI-data district "+str(myId)+", "+myLK+" is not in census. Dropping this data.")
+                print("WARNING: RKI-data district " + str(myId) + ", " + myLK + " is not in census. Dropping this data.")
                 toDropID.append(myId)
             toDrop.append(index)
     rki_data = rki_data.drop(toDrop)
@@ -473,7 +502,6 @@ def cumulate(rki_data, df):
     Area = np.zeros(len(LKs))
     PopW = np.zeros(len(LKs))
     PopM = np.zeros(len(LKs))
-
 
     df = df.set_index('Key')
     # IDs = [int(ID) for ID in IDs]
@@ -531,17 +559,20 @@ class axisType:
     individual = 'individual'
     uniform = 'uniform'
 
+
 def prependOnes(s1, s2):
-    l1 = len(s1); l2 = len(s2)
+    l1 = len(s1);
+    l2 = len(s2)
     maxDim = max(l1, l2)
-    return np.array((maxDim-l1)*[1]+list(s1)), np.array((maxDim-l2)*[1]+list(s2))
+    return np.array((maxDim - l1) * [1] + list(s1)), np.array((maxDim - l2) * [1] + list(s2))
+
 
 def equalShape(s1, s2):
     if isinstance(s1, tf.TensorShape):
         s1 = s1.as_list()
     if isinstance(s2, tf.TensorShape):
         s2 = s2.as_list()
-    s1,s2 = prependOnes(s1,s2)
+    s1, s2 = prependOnes(s1, s2)
     return np.linalg.norm(s1 - s2) == 0
 
 
@@ -582,9 +613,9 @@ class Axis:
                 if len(vals) != np.prod(self.shape):
                     raise ValueError('Number of initialization values ' + str(len(vals)) + ' of variable ' + self.name + ' does not match its shape ' + str(self.shape))
                 vals = np.reshape(np.array(vals, dtype=CalcFloatStr), self.shape)
-            #if callable(vals):
+            # if callable(vals):
             #    vshape = vals().shape
-            #else:
+            # else:
             #    vshape = vals.shape
             # if not equalShape(vshape, self.shape):
             #    raise ValueError('Initialization shape ' + str(vshape) + ' of variable ' + self.name + ' does not match its shape ' + str(self.shape))
@@ -603,7 +634,7 @@ class Axis:
 
     def initDelta(self, pos=0):
         x = self.ramp()
-        initVals = tf.cast(x == pos, CalcFloatStr) # 1.0 *
+        initVals = tf.cast(x == pos, CalcFloatStr)  # 1.0 *
         return initVals
 
     def initSigmoid(self, mu=0.0, sig=1.0, offset=0.0):
@@ -706,7 +737,10 @@ class Model:
                 hasQueue = False
                 if AxName in self.Axes:
                     myAxis = self.Axes[AxName]
-                    if not isinstance(initVal, Axis) and not callable(initVal):
+                    if (initVal is None):
+                        continue
+                        # initVal = myAxis.init(1.0/np.prod(myAxis.shape, dtype=CalcFloatStr))
+                    if (not isinstance(initVal, Axis) and not callable(initVal)) or isNumber(initVal):
                         initVal = myAxis.init(initVal)
                     if myAxis.queue:
                         if hasQueue:
@@ -716,20 +750,23 @@ class Model:
                 else:
                     initVal = totensor(initVal)
                 if res == []:
-                    res.append(initVal)
-                elif callable(res[-1]):
+                    res = initVal
+                elif callable(res):
                     if callable(initVal):
-                        res.append(lambda: res[-1]() * initVal())
+                        res = res() * initVal()
                     else:
-                        res.append(lambda: res[-1]() * initVal)
+                        res = res() * initVal
                 else:
                     if callable(initVal):
-                        res.append(lambda: res[-1] * initVal())
+                        res = res * initVal()
                     else:
-                        res.append(res[-1] * initVal)
-            prodAx = res[-1]
+                        res = res * initVal
         if makeInitVar:  # make the initialization value a variable
             prodAx = self.newVariables({name: prodAx})  # initially infected
+        elif not callable(res):
+            prodAx = lambda: res
+        else:
+            prodAx = res
         self.State[name] = prodAx
 
     def newVariables(self, VarList=None):
@@ -780,7 +817,7 @@ class Model:
                 elif queueSrc == "total":
                     pass
                 else:
-                    raise ValueError("Unknown queue source: "+str(queueSrc)+". Please select an axis or \"total\".")
+                    raise ValueError("Unknown queue source: " + str(queueSrc) + ". Please select an axis or \"total\".")
             if callable(rate):
                 transferred = fromState * rate()  # calculate the transfer for this rate equation
             else:
@@ -810,11 +847,12 @@ class Model:
                 myTransfer = self.ReduceByShape(OrigStates[toName], myTransfer)
                 State[toName] = State[toName] + myTransfer
 
-            if queueSrc is None or queueSrc=="total":
-                transferred = self.ReduceByShape(State[fromName], transferred)
+            if queueSrc is None or queueSrc == "total":
+                myTransfer = reduceSumTo(transferred, State[fromName])
+                transferred = self.ReduceByShape(State[fromName], myTransfer)
                 State[fromName] = State[fromName] - transferred  # the original needs to be individually subtracted!
             else:
-                pass # this dequeing is automatically removed
+                pass  # this dequeing is automatically removed
         self.advanceQueues(State, toQueue)
         return State
 
@@ -910,8 +948,8 @@ class Model:
     #     return tfp.math.value_and_gradient(
     #         lambda x: tf.reduce_sum(tf.math.squared_difference(x, self.predicted)), x)
 
-    @tf.function
-    def doBuildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10, oparam={"noiseModel":"Gaussian"}):
+    # @tf.function
+    def doBuildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10, oparam={"noiseModel": "Gaussian"}):
         finalState = self.traceModel(Tmax)
         Loss = None
         for predictionName, measured in dictToFit.items():
@@ -922,10 +960,12 @@ class Model:
             if "noiseModel" in oparam:
                 if oparam["noiseModel"] == "Gaussian":
                     thisLoss = Loss_FixedGaussian(predicted[FitStart:myFitEnd], measured[FitStart:myFitEnd])
+                elif oparam["noiseModel"] == "ScaledGaussian":
+                    thisLoss = Loss_ScaledGaussianReadNoise(predicted[FitStart:myFitEnd], measured[FitStart:myFitEnd])
                 elif oparam["noiseModel"] == "Poisson":
                     thisLoss = Loss_Poisson2(predicted[FitStart:myFitEnd], measured[FitStart:myFitEnd])
                 else:
-                    ValueError("Unknown noise model: "+oparam["noiseModel"])
+                    ValueError("Unknown noise model: " + oparam["noiseModel"])
             else:
                 thisLoss = Loss_FixedGaussian(predicted[FitStart:myFitEnd], measured[FitStart:myFitEnd])
             if Loss is None:
@@ -949,16 +989,16 @@ class Model:
             if applyPoisson:
                 mm = np.min(measured[name])
                 if (mm < 0.0):
-                    raise ValueError('Poisson noise generator discovered a negative number '+str(mm)+' in '+name)
+                    raise ValueError('Poisson noise generator discovered a negative number ' + str(mm) + ' in ' + name)
                 measured[name] = self.applyPoissonNoise(measured[name])
             if applyGaussian is not None:
                 measured[name] = self.applyGaussianNoise(measured[name], sigma=applyGaussian)
         self.Simulations[resname] = simulated
         self.Measurements[resname] = measured
         if applyPoisson or applyGaussian is not None:
-            toReturn=self.Measurements
+            toReturn = self.Measurements
         else:
-            toReturn=self.Simulations
+            toReturn = self.Simulations
         if len(toReturn.keys()) == 1:
             dict = next(iter(toReturn.values()))
             if len(dict.keys()) == 1:
@@ -992,6 +1032,12 @@ class Model:
         if "learning_rate" not in oparam:
             oparam["learning_rate"] = None
 
+        self.Measurements = {}
+        for predictionName, measured in data_dict.items():
+            data_dict[predictionName] = measured.astype(CalcFloatStr)
+            self.Measurements['measured'] = {}
+            self.Measurements['measured'][predictionName] = measured.astype(CalcFloatStr)  # save as measurement for plot
+
         loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
 
         FitVars = [self.Var[varN] for varN in self.FitVars]
@@ -1007,8 +1053,10 @@ class Model:
 
         opt = optimizer(loss_fnOnly, otype=otype, oparam=oparam, NIter=NIter, var_list=FitVars, verbose=verbose)
         opt.optName = otype  # just to store this
-        res = Optimize(opt, loss=loss_fnOnly, lossScale=lossScale)  # self.ResultVals.items()
-
+        if NIter > 0:
+            res = Optimize(opt, loss=loss_fnOnly, lossScale=lossScale)  # self.ResultVals.items()
+        else:
+            res = loss_fnOnly()
         self.ResultVals = result_dict  # stores how to calculate results
         ResultVals = result_dict()  # calculates the results
         self.Progression = progression_dict
@@ -1022,13 +1070,34 @@ class Model:
             self.FitResultVals[varN] = ResultVals[varN]  # .numpy() # res[n]
         return self.FitResultVars, self.FitResultVals
 
-    def showResults(self, title='Results', xlabel='time step', ylabel='probability'):
+    def selectDims(self, toPlot, dims=None, includeZero=False):
+        if dims is None:
+            toPlot = np.squeeze(toPlot)
+            if toPlot.ndim > 1:
+                toPlot = np.sum(toPlot, tuple(range(1, toPlot.ndim)))
+        else:
+            if not isinstance(dims, list) and not isinstance(dims, tuple):
+                dims = list([dims])
+            if includeZero:
+                rd = list(range(1, toPlot.ndim))  # already exclude the zero axis from being deleted here.
+            else:
+                rd = list(range(toPlot.ndim))
+            for d in dims:
+                if isinstance(d, str):
+                    d = - self.Axes[d].curAxis
+                if d < 0:
+                    d = toPlot.ndim + d
+                rd.remove(d)
+            toPlot = np.sum(toPlot, tuple(rd))
+        return toPlot
+
+    def showResults(self, title='Results', xlabel='time step', ylabel='probability', dims=None, legendPlacement='upper left'):
         # Plot results
         plt.figure(title)
         plt.title(title)
         legend = []
-        styles = ['.', '-.','-', ':', '--']
-        n=0
+        styles = ['.', '-.', '-', ':', '--']
+        n = 0
         # for resN, dict in self.Simulations.items():
         #     style = styles[n]
         #     n+=1
@@ -1038,22 +1107,24 @@ class Model:
         # n=0
         for resN, dict in self.Measurements.items():
             for dictN, toPlot in dict.items():
+                toPlot = self.selectDims(toPlot, dims=dims, includeZero=True)
                 plt.plot(toPlot, styles[n])
-                if toPlot.ndim>1:
+                if toPlot.ndim > 1:
                     for d in range(toPlot.shape[1]):
-                        legend.append(resN + "_" + dictN+"_"+str(d))
+                        legend.append(resN + "_" + dictN + "_" + str(d))
                 else:
                     legend.append(resN + "_" + dictN)
             plt.gca().set_prop_cycle(None)
             n += 1
         for dictN, toPlot in self.FitResultVals.items():
+            toPlot = self.selectDims(toPlot, dims=dims, includeZero=True)
             plt.plot(toPlot, styles[n])
             if toPlot.ndim > 1:
                 for d in range(toPlot.shape[1]):
                     legend.append("Fit_" + dictN + "_" + str(d))
         else:
             legend.append("Fit_" + "_" + dictN)
-        plt.legend(legend)
+        plt.legend(legend, loc=legendPlacement)
         if xlabel is not None:
             plt.xlabel(xlabel)
         if ylabel is not None:
@@ -1061,26 +1132,29 @@ class Model:
 
     def sumOfStates(self, Progression):
         sumStates = 0
-        sumcoords = tuple(np.arange(self.maxAxes+1)[1:])
+        sumcoords = tuple(np.arange(self.maxAxes + 1)[1:])
         for name, state in Progression.items():
             sumStates = sumStates + np.sum(state.numpy(), axis=sumcoords)
         return sumStates
 
-    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability'):
+    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, 1], MinusOne=[], legendPlacement='upper left'):
 
         # Plot the state population
         plt.figure(10)
         plt.title(title)
         legend = []
-        Progression = self.Progression()
+        if callable(self.Progression):
+            Progression = self.Progression()
+        else:
+            Progression = self.Progression
 
         sumStates = np.squeeze(self.sumOfStates(Progression))
         initState = sumStates[0]
         meanStates = np.mean(sumStates)
-        maxDiff = np.max(abs(sumStates-initState))
-        print("Sum of states deviates by: "+str(maxDiff)+", from the starting state. relative: "+str(maxDiff/initState))
+        maxDiff = np.max(abs(sumStates - initState))
+        print("Sum of states deviates by: " + str(maxDiff) + ", from the starting state. relative: " + str(maxDiff / initState))
 
-        N=1
+        N = 1
         for varN in Progression:
             if varN not in exclude:
                 sh = np.array(Progression[varN].shape, dtype=int)
@@ -1088,33 +1162,40 @@ class Model:
                 toPlot = np.squeeze(Progression[varN])
                 myLegend = varN
                 if toPlot.ndim > 1:
-                    plt.figure(10+N)
+                    plt.figure(10 + N)
                     plt.ylabel(xlabel)
-                    plt.xlabel(self.RegisteredAxes[self.maxAxes-pdims[0][1]].name)
+                    plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
                     N += 1
-                    plt.title("State "+varN)
-                    plt.imshow(toPlot, aspect="auto")
-                    toPlot = np.sum(toPlot, tuple(np.arange(1,toPlot.ndim, dtype=int)))
+                    plt.title("State " + varN)
+                    toPlot2 = self.selectDims(toPlot, dims=dims2d)
+                    plt.imshow(toPlot2, aspect="auto")
+                    toPlot = self.selectDims(toPlot, dims=dims)
+                    if varN in MinusOne:
+                        toPlot = toPlot - 1.0
+                        myLegend = myLegend + "-1"
                     myLegend = myLegend + " (summed)"
+                    plt.colorbar()
                 plt.figure(10)
                 plt.plot(toPlot)
                 legend.append(myLegend)
-        plt.legend(legend)
+        plt.legend(legend, loc=legendPlacement)
         if xlabel is not None:
             plt.xlabel(xlabel)
         if ylabel is not None:
             plt.ylabel(ylabel)
 
-    def compareFit(self, maxPrintSize=10):
+    def compareFit(self, maxPrintSize=10, dims=None, legendPlacement='upper left'):
         for varN, orig in self.Original.items():
             fit = self.Var[varN].numpy()
             if isNumber(fit) or np.prod(fit.shape) < maxPrintSize:
                 print("Comparison " + varN + ", Original: " + str(orig) + ", fit: " + str(fit) + ", rel. error:" + str(np.max((fit - orig) / orig)))
             else:
                 plt.figure("Comparison " + varN)
+                orig = self.selectDims(orig, dims=dims)
                 plt.plot(orig)
+                fit = self.selectDims(fit, dims=dims)
                 plt.plot(fit)
-                plt.legend(["original", "fit"])
+                plt.legend(["original", "fit"], loc=legendPlacement)
 
 
 # --------- Stuff concerning loading data
