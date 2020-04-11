@@ -56,19 +56,18 @@ InitPopul = InitPopulM + InitPopulW
 MRatio = np.sum(PopM) / PopSum
 M.newState(name='S', axesInit={"Age": InitAge, "District": InitPopul, "Gender": [MRatio, 1 - MRatio]})
 I0 = M.newVariables({'I0': 0.000055 * InitPopulM})  # a district dependent variable of initially infected
-InitProgression = lambda: I0 * M.Axes['Disease Progression'].initDelta()  # variables to fit have to always be packed in lambda functions!
+InitProgression = lambda: I0() * M.Axes['Disease Progression'].initDelta()  # variables to fit have to always be packed in lambda functions!
 M.newState(name='I', axesInit={"Disease Progression": InitProgression, "District": None, "Age": None, "Gender": None})
 M.newState(name='H', axesInit={"Disease Progression": 0, "District": 0, "Age": 0, "Gender": 0})
 M.newState(name='R', axesInit={"District": 0, "Age": 0, "Gender": 0})  # undetected recovered
 M.newState(name='Rd', axesInit={"District": 0, "Age": 0, "Gender": 0})  # detected recovered
-ht0 = M.newVariables({'ht0': 3.0})
+ht0 = M.newVariables({'ht0': 3.0}, forcePos=False)
 hr = M.newVariables({'hr': 0.02})  # rate of hospitalization
-hospitalization = lambda: hr * M.Axes['Disease Progression'].initGaussian(ht0, 3.0)
+hospitalization = lambda: hr() * M.Axes['Disease Progression'].initGaussian(ht0, 3.0)
 influx = M.newVariables({'influx': 0.0001})  # a district dependent variable of initially infected
 # infectionRate = lambda I: (I + influx) * M.Var['r0']
 r0 = M.newVariables({'r0': 0.11 / InitPopul})
-infectionRate = lambda: M.Var['r0']
-M.addRate(('S', 'I'), 'I', infectionRate, queueDst="Disease Progression")  # S ==> I[0]
+M.addRate(('S', 'I'), 'I', r0, queueDst="Disease Progression")  # S ==> I[0]
 M.addRate('I', 'H', hospitalization)  # I[t] -> H[t]
 M.addRate('H', 'Rd', 1.0, queueSrc="Disease Progression")  # H[t] -> R[t]  this is a dequeuing operation and thus the rate needs to be one!
 M.addRate('I', 'R', 1.0, queueSrc="Disease Progression")  # H[t] -> R[t]  this is a dequeuing operation and thus the rate needs to be one!
@@ -93,7 +92,7 @@ else:
     oparam = {"learning_rate": learnrate[otype]}
 # oparam['noiseModel'] = 'Poisson'
 oparam['noiseModel'] = 'Gaussian'
-# oparam['noiseModel'] = 'ScaledGaussian'  # is buggy?
+# oparam['noiseModel'] = 'ScaledGaussian'  # is buggy? Why the NaNs?
 
 NIter = 150
 fittedVars, fittedRes = M.fit({'detected': MeasDetected[:, np.newaxis, :, :, 0:1] / PopSum}, Tmax, otype=otype, oparam=oparam, NIter=NIter, verbose=True, lossScale=lossScale)

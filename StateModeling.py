@@ -92,7 +92,7 @@ def iterativeOptimizer(myTFOptimization, NIter, loss, verbose=False):
     return myloss  # , summary
 
 
-def optimizer(loss, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_rate': None}, var_list=None, verbose=False):
+def optimizer(lossIn, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_rate': None}, var_list_in=None, verbose=False, forcePos=False):
     """
     defines an optimizer to be used with "Optimize"
     This function combines various optimizers from tensorflow and SciPy (with tensorflow compatibility)
@@ -125,6 +125,16 @@ def optimizer(loss, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_ra
     """
     if NIter < 0:
         raise ValueError("NIter has to be positive or zero")
+
+    if forcePos:
+        b2 = 1e-5
+        old_vars = var_list_in
+        var_list = forcePositiveNewVars(var_list_in, b2=b2)
+        loss = lambda: forcePositiveWrapper(lossIn, var_list, old_vars, b2=b2)
+    else:
+        var_list = var_list_in
+        loss = lossIn
+
     optimStep = 0
     if (var_list is not None) and not np.iterable(var_list):
         var_list = [var_list]
@@ -161,7 +171,7 @@ def optimizer(loss, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_ra
         optimStep = lambda loss: tf.keras.optimizers.Adagrad(learning_rate).minimize(loss, var_list=var_list)  # 1.0
     if optimStep != 0:
         myoptim = lambda: optimStep(loss)
-        return lambda: iterativeOptimizer(myoptim, NIter, loss, verbose=verbose)
+        myOptimizer = lambda: iterativeOptimizer(myoptim, NIter, loss, verbose=verbose)
     # these optimizers perform the whole iteration
     elif otype == 'L-BFGS':
         normFac = None
@@ -177,16 +187,22 @@ def optimizer(loss, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_ra
         #                                                    tolerance=1e-8,
         #                                                    max_iterations=NIter)
         # # f_relative_tolerance = 1e-6,
-        return myOptimizer  # 'L-BFGS'
     else:
         raise ValueError('Unknown optimizer: ' + otype)
 
+    if forcePos:
+        resOptimizer = lambda: forcePositiveAssignOldVarsWrapper(myOptimizer, var_list, old_vars, b2)
+    else:
+        resOptimizer = myOptimizer
 
+    return resOptimizer  # either an iterative one or 'L-BFGS'
+
+@tf.function
 def LBFGSWrapper(func, init_params, NIter):
     optim_results = tfp.optimizer.lbfgs_minimize(value_and_gradients_function=func,
-                                                         initial_position=init_params,
-                                                         tolerance=1e-8,
-                                                         max_iterations=NIter)
+                                                 initial_position=init_params,
+                                                 tolerance=1e-8,
+                                                 max_iterations=NIter)
     # f_relative_tolerance = 1e-6
     # converged, failed,  num_objective_evaluations, final_loss, final_gradient, position_deltas,  gradient_deltas
     if not optim_results.converged:
@@ -196,6 +212,69 @@ def LBFGSWrapper(func, init_params, NIter):
     res = optim_results.position
     func.assign_new_model_parameters(res)
     return optim_results.objective_value
+
+@tf.function
+def forcePositiveWrapper(loss, new_var_list, var_list, b2=1e-5):
+    var_list = forcePositiveAssignOldVars(new_var_list, var_list, b2) # changes the old vars
+    return loss()
+
+def forcePositiveAssignOldVars(new_var_list, var_list, b2=1e-5):
+    for new_var, var in zip(new_var_list, var_list):
+        var.assign(monotonicPos(new_var, b2))
+    return var_list
+
+
+def forcePositiveAssignOldVarsWrapper(Optimizer, new_var_list, var_list, b2=1e-5):
+    res = Optimizer()
+    forcePositiveAssignOldVars(new_var_list, var_list, b2)
+    return res
+
+def forcePositiveNewVars(var_list, b2=1e-5):
+    new_Vars = []
+    for var in var_list:
+        new_Vars.append(tf.Variable(invMonotonicPos(var, b2=b2), name=var.name+"_pos"))
+    return new_Vars
+
+@tf.custom_gradient
+def monotonicPos(val, b2=1e-5):
+    """
+    applies a monotonic transform mapping the full real axis to the positive half space
+
+    This can be used to implicitely force the reconstruction results to be all-positive. The monotonic function is derived from a hyperboloid:
+
+    The function is continues and differentiable.
+    This function can also be used as an activation function for neural networks.
+
+    Parameters
+    ----------
+    val : tensorflow array
+        The array to be transformed
+
+    Returns
+    -------
+    tensorflow array
+        The transformed array
+
+    Example
+    -------
+    """
+    mysqrt = tf.sqrt(b2 + tf.square(val) / 4.0)
+
+    def grad(dy):
+        return dy * (0.5 + val / mysqrt / 4.0), None  #
+
+    return mysqrt + val / 2.0, grad
+
+# This monotonic positive function is based on a Hyperbola modified that one of the branches appraoches zero and the other one reaches a slope of one
+def invMonotonicPos(invinput, b2 = 1e-5, Eps=0):
+      # a constant value > 0.0 0 which regulates the shape of the hyperbola. The bigger the smoother it becomes.
+    tfinit = tf.clip_by_value(invinput, clip_value_min=Eps, clip_value_max=np.Inf)  # assersion to obtain only positive input for the initialization
+    return tfinit - (b2 / tfinit)  # the inverse of monotonicPos
+
+# def forcePositive(self, State):
+#     for varN, var in State.items():
+#         State[varN] = self.monotonicPos(State[varN])
+#     return State
 
 
 def Reset():
@@ -314,6 +393,8 @@ def totensor(img):
         return img
     if isList(img):
         img = np.array(img, CalcFloatStr)
+    if callable(img):
+        img = img()
 
     if not isNumber(img) and ((img.dtype == defaultTFDataType) or (img.dtype == defaultTFCpxDataType)):
         img = tf.constant(img)
@@ -354,25 +435,35 @@ def Loss_FixedGaussian(fwd, meas, lossDataType=None, checkScaling=False):
             return tf.reduce_mean(input_tensor=tf.cast(tf.square(fwd - meas), lossDataType)) / tf.reduce_mean(
                 input_tensor=tf.cast(meas, lossDataType))  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
 
+
 # @tf.function
-def Loss_ScaledGaussianReadNoise(fwd, meas, RNV=1.0, lossDataType=None, checkScaling=False):
+def Loss_ScaledGaussianReadNoise(fwd, meas, RNV=tf.constant(1.0), lossDataType=None, checkScaling=False):
     if lossDataType is None:
         lossDataType = defaultLossDataType
     if checkScaling:
         fwd = doCheckScaling(fwd, meas)
-    offsetcorr = tf.cast(tf.reduce_mean(tf.math.log(meas + RNV)), lossDataType)  # this was added to have the ideal fit yield a loss equal to zero
+    offsetcorr = tf.cast(tf.reduce_mean(tf.math.log(tf.math.maximum(meas, tf.constant(0.0, dtype=CalcFloatStr)) + RNV)),
+                         lossDataType)  # this was added to have the ideal fit yield a loss equal to zero
 
     # with tf.compat.v1.name_scope('Loss_ScaledGaussianReadNoise'):
     XMinusMu = tf.cast(meas - fwd, lossDataType)
-    muPlusC = tf.cast(fwd + RNV, lossDataType)
+    muPlusC = tf.cast(tf.math.maximum(fwd, tf.constant(0.0, dtype=CalcFloatStr)) + tf.constant(RNV, CalcFloatStr),
+                      lossDataType)  # the clipping at zero was introduced to avoid division by zero
+    # if tf.reduce_any(RNV == tf.constant(0.0, CalcFloatStr)):
+    #     print("RNV is: "+str(RNV))
+    #     raise ValueError("RNV is zero!.")
+    # if tf.reduce_any(muPlusC == tf.constant(0.0, CalcFloatStr)):
+    #     print("Problem: Division by zero encountered here")
+    #     raise ValueError("Division by zero HERE!.")
     Fwd = tf.math.log(muPlusC) + tf.square(XMinusMu) / muPlusC
     #       Grad=Grad.*(1.0-2.0*XMinusMu-XMinusMu.^2./muPlusC)./muPlusC;
     Fwd = tf.reduce_mean(input_tensor=Fwd)
-    if tf.math.is_nan(Fwd):
-        if tf.reduce_any(muPlusC == 0):
-            raise ValueError("Division by zero.")
-        else:
-            raise ValueError("Nan encountered.")
+    # if tf.math.is_nan(Fwd):
+    #     if tf.reduce_any(muPlusC == tf.constant(0.0, CalcFloatStr)):
+    #         print("Problem: Division by zero encountered")
+    #         raise ValueError("Division by zero.")
+    #     else:
+    #         raise ValueError("Nan encountered.")
     return Fwd - offsetcorr  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
 
 
@@ -397,6 +488,7 @@ def Loss_Poisson(fwd, meas, Bg=0.05, checkPos=False, lossDataType=None, checkSca
         #            return dy*(1.0 - meas/(fwd+Bg))/meanmeas
         #        return totalError,grad
         return totalError
+
 
 @tf.function
 def Loss_Poisson2(fwd, meas, Bg=0.05, checkPos=False, lossDataType=None, checkScaling=False):
@@ -697,7 +789,8 @@ class Model:
         self.Axes = {}
         self.RegisteredAxes = []  # just to have a convenient way of indexing them
         self.State = {}  # dictionary of state variables
-        self.Var = {}
+        self.Var = {}  # may be variables or lambdas
+        self.rawVar = {}  # saves the raw variables
         self.Original = {}  # here the values previous to a distortion are stored (for later comparison)
         self.Simulations = {}
         self.Measurements = {}
@@ -769,7 +862,7 @@ class Model:
             prodAx = res
         self.State[name] = prodAx
 
-    def newVariables(self, VarList=None):
+    def newVariables(self, VarList=None, forcePos=True, b2=1e-5):
         if VarList is not None:
             for name, initVal in VarList.items():
                 if name in self.Var:
@@ -778,7 +871,15 @@ class Model:
                     raise ValueError("Variable " + name + " is already defined as a State.")
                 if name in self.ResultVals:
                     raise ValueError("Variable " + name + " is already defined as a Result.")
-                self.Var[name] = tf.Variable(initVal, name=name, dtype=CalcFloatStr)
+                if forcePos:
+                    initVal = invMonotonicPos(initVal, b2)
+                rawvar = tf.Variable(initVal, name=name, dtype=CalcFloatStr)
+                if forcePos:
+                    var = lambda: monotonicPos(rawvar, b2)
+                else:
+                    var = rawvar
+                self.rawVar[name] = rawvar # this is needed for optimization
+                self.Var[name] = var
         return self.Var[name]  # return the last variable for convenience
 
     def addRate(self, fromState, toState, rate, queueSrc=None, queueDst=None, name=None):  # S ==> I[0]
@@ -819,9 +920,8 @@ class Model:
                 else:
                     raise ValueError("Unknown queue source: " + str(queueSrc) + ". Please select an axis or \"total\".")
             if callable(rate):
-                transferred = fromState * rate()  # calculate the transfer for this rate equation
-            else:
-                transferred = fromState * rate  # calculate the transfer for this rate equation
+                rate = rate()  # calculate the transfer for this rate equation
+            transferred = fromState * rate  # calculate the transfer for this rate equation
             if higherOrder is not None:
                 for hState in higherOrder:
                     transferred = transferred * OrigStates[hState]  # apply higher order rates
@@ -1040,7 +1140,7 @@ class Model:
 
         loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
 
-        FitVars = [self.Var[varN] for varN in self.FitVars]
+        FitVars = [self.rawVar[varN] for varN in self.FitVars]
         # if lossScale == "max":
         #     lossScale = np.max(data_dict)
         if lossScale is not None:
@@ -1051,7 +1151,7 @@ class Model:
         result_dict = lambda: loss_fn()[1]
         progression_dict = lambda: loss_fn()[2]
 
-        opt = optimizer(loss_fnOnly, otype=otype, oparam=oparam, NIter=NIter, var_list=FitVars, verbose=verbose)
+        opt = optimizer(loss_fnOnly, otype=otype, oparam=oparam, NIter=NIter, var_list_in=FitVars, verbose=verbose)
         opt.optName = otype  # just to store this
         if NIter > 0:
             res = Optimize(opt, loss=loss_fnOnly, lossScale=lossScale)  # self.ResultVals.items()
@@ -1062,8 +1162,10 @@ class Model:
         self.Progression = progression_dict
         # Progression = progression_dict()
         self.FitResultVars = {'Loss': res}
-        for varN in self.FitVars:
-            self.FitResultVars[varN] = self.Var[varN].numpy()  # res[n]
+        for varN, var in self.FitVars.items():
+            if callable(var):
+                var = var()
+            self.FitResultVars[varN] = var.numpy()  # res[n]
         # for varN in Progression:
         #     self.Progression[varN] = Progression[varN]  # res[n]
         for varN in ResultVals:
