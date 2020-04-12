@@ -30,7 +30,7 @@ else:
 
 ReduceDistricts = True
 if ReduceDistricts:
-    DistrictStride = 50
+    DistrictStride = 200
     MeasDetected = MeasDetected[:, 0:-1:DistrictStride, :, :]
     PopM = PopM[0:-1:DistrictStride]
     PopW = PopW[0:-1:DistrictStride]
@@ -55,9 +55,15 @@ InitPopulW = M.Axes['District'].init(PopW / PopSum)
 InitPopul = InitPopulM + InitPopulW
 MRatio = np.sum(PopM) / PopSum
 M.newState(name='S', axesInit={"Age": InitAge, "District": InitPopul, "Gender": [MRatio, 1 - MRatio]})
-I0 = M.newVariables({'I0': 0.000055 * InitPopulM})  # a district dependent variable of initially infected
-InitProgression = lambda: I0() * M.Axes['Disease Progression'].initDelta()  # variables to fit have to always be packed in lambda functions!
-M.newState(name='I', axesInit={"Disease Progression": InitProgression, "District": None, "Age": None, "Gender": None})
+M.newState(name='Sq', axesInit={"Age": InitAge, "District": InitPopul, "Gender": [MRatio, 1 - MRatio]})
+#I0 = M.newVariables({'I0': 0.000055 * InitPopulM}, forcePos=False)  # a district dependent variable of initially infected
+I0 = M.newVariables({'I0': 0.01 * InitPopulM}, forcePos=False)  # a district dependent variable of initially infected
+# InitProgression = lambda: I0 * M.Axes['Disease Progression'].initDelta()  # variables to fit have to always be packed in lambda functions!
+#M.newState(name='I', axesInit={"Disease Progression": InitProgression, "District": None, "Age": None, "Gender": None})
+M.newState(name='I', axesInit={"Disease Progression": 0, "District": 0, "Age": 0, "Gender": 0})
+T0 = M.newVariables({"T0": 64.5}, forcePos=False)  # time at which a delta is injected into the progression
+M.addRate('S', 'I', lambda t: I0 * M.initGaussianT0(T0, t), queueDst='Disease Progression', hasTime=True)  # When you made it though the queue, you are recovered
+
 M.newState(name='H', axesInit={"Disease Progression": 0, "District": 0, "Age": 0, "Gender": 0})
 M.newState(name='R', axesInit={"District": 0, "Age": 0, "Gender": 0})  # undetected recovered
 M.newState(name='Rd', axesInit={"District": 0, "Age": 0, "Gender": 0})  # detected recovered
@@ -66,15 +72,17 @@ hr = M.newVariables({'hr': 0.02})  # rate of hospitalization
 hospitalization = lambda: hr() * M.Axes['Disease Progression'].initGaussian(ht0, 3.0)
 influx = M.newVariables({'influx': 0.0001})  # a district dependent variable of initially infected
 # infectionRate = lambda I: (I + influx) * M.Var['r0']
-r0 = M.newVariables({'r0': 0.11 / InitPopul})
+r0 = M.newVariables({'r0': 0.11 / InitPopul}, forcePos=True)
 M.addRate(('S', 'I'), 'I', r0, queueDst="Disease Progression")  # S ==> I[0]
 M.addRate('I', 'H', hospitalization)  # I[t] -> H[t]
-M.addRate('H', 'Rd', 1.0, queueSrc="Disease Progression")  # H[t] -> R[t]  this is a dequeuing operation and thus the rate needs to be one!
-M.addRate('I', 'R', 1.0, queueSrc="Disease Progression")  # H[t] -> R[t]  this is a dequeuing operation and thus the rate needs to be one!
+M.addRate('H', 'Rd', 1.0, queueSrc="Disease Progression")  # H[t] -> R[t]  this is a dequeueing operation and thus the rate needs to be one!
+M.addRate('I', 'R', 1.0, queueSrc="Disease Progression")  # H[t] -> R[t]  this is a dequeueing operation and thus the rate needs to be one!
 M.addResult('detected', lambda State: tf.reduce_sum(State['H'], 1) + State['Rd'])  # ('I', 'S')
 
 # M.toFit(['r0', 'hr', 'ht0', 'I0'])
-M.toFit(['r0', 'I0'])
+# M.toFit(['r0', 'I0'])
+M.toFit(['T0', 'r0'])
+# M.toFit(['r0'])
 
 # simulated = M.simulate('simulated', {'detected': None}, Tmax=Tmax)
 # M.showResults(ylabel='occupancy')
