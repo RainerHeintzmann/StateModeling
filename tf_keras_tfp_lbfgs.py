@@ -22,8 +22,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from matplotlib import pyplot
 
-
-def function_factory(loss, var_list, normFactors=None):
+def function_factory(loss, var_list): # , normFactors=None
     """A factory to create a function required by tfp.optimizer.lbfgs_minimize.
     Args:
         loss [in]: a function with signature loss_value = loss(pred_y, true_y).
@@ -50,22 +49,22 @@ def function_factory(loss, var_list, normFactors=None):
 
     part = tf.constant(part)
 
-    if normFactors == "mean":
-        normFactors = []
-        for var in var_list:
-            nf = tf.reduce_mean(var).numpy()  # norm factors are NOT part of optimizations!
-            if np.abs(nf) < 1e-5:
-                nf = 1.0
-            normFactors.append(nf)
-    elif normFactors == "max":
-        normFactors = []
-        for var in var_list:
-            nf = tf.reduce_max(var).numpy()  # norm factors are NOT part of optimizations!
-            if np.abs(nf) < 1e-5:
-                nf = 1.0
-            normFactors.append(nf)
-    elif normFactors is not None:
-        normFactors = np.array(normFactors)
+    # if normFactors == "mean":
+    #     normFactors = []
+    #     for var in var_list:
+    #         nf = tf.reduce_mean(var).numpy()  # norm factors are NOT part of optimizations!
+    #         if np.abs(nf) < 1e-5:
+    #             nf = 1.0
+    #         normFactors.append(nf)
+    # elif normFactors == "max":
+    #     normFactors = []
+    #     for var in var_list:
+    #         nf = tf.reduce_max(var).numpy()  # norm factors are NOT part of optimizations!
+    #         if np.abs(nf) < 1e-5:
+    #             nf = 1.0
+    #         normFactors.append(nf)
+    # elif normFactors is not None:
+    #     normFactors = np.array(normFactors)
 
     @tf.function
     def assign_new_model_parameters(params_1d):
@@ -75,20 +74,21 @@ def function_factory(loss, var_list, normFactors=None):
         """
         params = tf.dynamic_partition(params_1d, part, n_tensors)
         for i, (shape, param) in enumerate(zip(shapes, params)):
-            if normFactors is None:
-                var_list[i].assign(tf.reshape(param, shape))
-            else:
-                var_list[i].assign(tf.reshape(param, shape) * normFactors[i])
+            # if normFactors is None:
+            #     var_list[i].assign(tf.reshape(param, shape))
+            # else:
+            #     var_list[i].assign(tf.reshape(param, shape) * normFactors[i])
+            var_list[i].assign(tf.reshape(param, shape))
 
-    @tf.function
-    def correctGradients(grads):
-        if normFactors is not None:
-            ngrads = []
-            for i, grad in enumerate(grads):
-                ngrads.append(grad*normFactors[i])
-        else:
-            ngrads = grads
-        return ngrads
+    # @tf.function
+    # def correctGradients(grads):
+    #     if normFactors is not None:
+    #         ngrads = []
+    #         for i, grad in enumerate(grads):
+    #             ngrads.append(grad*normFactors[i])
+    #     else:
+    #         ngrads = grads
+    #     return ngrads
 
     # now create a function that will be returned by this factory
     @tf.function
@@ -109,7 +109,7 @@ def function_factory(loss, var_list, normFactors=None):
 
         # calculate gradients and convert to 1D tf.Tensor
         grads = tape.gradient(loss_value, var_list)
-        grads = correctGradients(grads)  # adjusts for the influence of the norm factors
+        # grads = correctGradients(grads)  # adjusts for the influence of the norm factors
         grads = tf.dynamic_stitch(idx, grads)
 
         # print out iteration & loss
@@ -125,12 +125,13 @@ def function_factory(loss, var_list, normFactors=None):
     f.shapes = shapes
     f.assign_new_model_parameters = assign_new_model_parameters
 
-    if normFactors is None:
-        init_list = var_list
-    else:
-        init_list = []
-        for i, var in enumerate(var_list):
-            init_list.append(var / normFactors[i])
+    init_list = var_list
+    # if normFactors is None:
+    #     init_list = var_list
+    # else:
+    #     init_list = []
+    #     for i, var in enumerate(var_list):
+    #         init_list.append(var / normFactors[i])
     f.initParams = lambda: tf.dynamic_stitch(idx, init_list)
 
     return f

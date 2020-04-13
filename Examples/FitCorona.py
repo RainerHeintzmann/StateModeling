@@ -11,15 +11,15 @@ if False:
     data = fetch_data.DataFetcher().fetch_german_data()
     data_np = data.to_numpy()
     df = pd.read_excel(basePath + r"\Examples\bev_lk.xlsx")  # support information about the population
-    MeasDetected, MeasDead, SupportingInfo = stm.cumulate(data, df)
+    RawMeasDetected, RawMeasDead, SupportingInfo = stm.cumulate(data, df)
     np.save(basePath + r'\Data\MeasDetected', MeasDetected)
     np.save(basePath + r'\Data\MeasDead', MeasDead)
     np.save(basePath + r'\Data\SupportingInfo', SupportingInfo)
 else:
-    MeasDetected = np.load(basePath + r'\Data\MeasDetected.npy')
-    MeasDead = np.load(basePath + r'\Data\MeasDead.npy')
+    RawMeasDetected = np.load(basePath + r'\Data\MeasDetected.npy')
+    RawMeasDead = np.load(basePath + r'\Data\MeasDead.npy')
     SupportingInfo = np.load(basePath + r'\Data\SupportingInfo.npy', allow_pickle=True)
-(IDs, LKs, PopM, PopW, Area, Ages, Gender) = SupportingInfo
+(RawIDs, LKs, RawPopM, RawPopW, Area, Ages, Gender) = SupportingInfo
 
 # fit,data = stm.DataLoader().get_new_data()
 # axes = data.keys()
@@ -30,21 +30,35 @@ else:
 
 ReduceDistricts = True
 if ReduceDistricts:
-    DistrictStride = 50
-    MeasDetected = MeasDetected[:, 0:-1:DistrictStride, :, :]
-    PopM = PopM[0:-1:DistrictStride]
-    PopW = PopW[0:-1:DistrictStride]
-    IDs = IDs[0:-1:DistrictStride]
+    # DistrictStride = 50
+    # SelectedIDs = slice(0,MeasDetected.shape[1],DistrictStride)
+    # IDLabels = LKs[SelectedIDs]
+    SelectedIDs = (0, 200, 250, 300, 339, 340, 341, 342)  # LKs.index('SK Jena')
+    # SelectedIDs = (0, 200)
+    IDLabels = [LKs[index] for index in SelectedIDs]
+    SelectedAges = slice(0,RawMeasDetected.shape[2]-1)  # remove the "unknown" part
+    AgeLabels = Ages[SelectedAges]
+    SelectedGender = slice(0,2)  # remove the "unknown" part
+    GenderLabels = Gender[SelectedAges]
+    MeasDetected = RawMeasDetected[:, SelectedIDs, SelectedAges, SelectedGender]
+    MeasDead = RawMeasDead[:, SelectedIDs, SelectedAges, SelectedGender]
+    PopM = [RawPopM[index] for index in SelectedIDs] # PopM[0:-1:DistrictStride]
+    PopW = [RawPopW[index] for index in SelectedIDs] # PopW[0:-1:DistrictStride]
+    IDs = [RawIDs[index] for index in SelectedIDs] # IDs[0:-1:DistrictStride]
+else:
+    IDLabels = LKs
+    MeasDetected = RawMeasDetected
+    MeasDead = RawMeasDead
 Tmax = 120
 
 M = stm.Model()
-M.addAxis("Gender", entries=len(Gender) - 1)
-M.addAxis("Age", entries=len(Ages))
-M.addAxis("District", entries=len(IDs))
+M.addAxis("Gender", entries=len(GenderLabels) - 1, labels=GenderLabels)
+M.addAxis("Age", entries=len(AgeLabels), labels=AgeLabels)
+M.addAxis("District", entries=len(IDLabels), labels=IDLabels)
 M.addAxis("Disease Progression", entries=20, queue=True)
 M.addAxis("Quarantine", entries=14, queue=True)
 
-Pop = 1e6 * np.array([(3.88 + 0.78), 6.62, 2.31 + 2.59 + 3.72 + 15.84, 23.9, 15.49, 7.88, 1.0], stm.CalcFloatStr)
+Pop = 1e6 * np.array([(3.88 + 0.78), 6.62, 2.31 + 2.59 + 3.72 + 15.84, 23.9, 15.49, 7.88], stm.CalcFloatStr)
 AgeDist = (Pop / np.sum(Pop))
 
 InitAge = M.Axes['Age'].init(AgeDist)
@@ -53,24 +67,32 @@ PopSum = np.sum(PopM) + np.sum(PopW)
 
 InitPopulM = M.Axes['District'].init(PopM / PopSum)
 InitPopulW = M.Axes['District'].init(PopW / PopSum)
-InitPopul = InitPopulM + InitPopulW
-MRatio = np.sum(PopM) / PopSum
+InitPopul = InitAge * np.concatenate((InitPopulM, InitPopulW), -1)
+
+#InitGender = [MRatio, 1 - MRatio]
+#MRatio = np.sum(PopM) / PopSum
+
 # susceptible
-M.newState(name='S', axesInit={"Age": InitAge, "District": InitPopul, "Gender": [MRatio, 1 - MRatio]})
+M.newState(name='S', axesInit={"Age": 1.0, "District": InitPopul, "Gender": 1.0})
 # I0 = M.newVariables({'I0': 0.000055 * InitPopulM}, forcePos=False)  # a district dependent variable of initially infected
 # assume 4.0 infected at time 0
-I0 = M.newVariables({'I0': 4.0 * InitPopulM / PopSum}, forcePos=False)  # a district dependent variable of initially infected
+#  (2.0/323299.0) * InitPopul
+I0 = M.newVariables({'I0': 3.5e-7}, forcePos=False)  # a global variable of initial infection probability
 # InitProgression = lambda: I0 * M.Axes['Disease Progression'].initDelta()  # variables to fit have to always be packed in lambda functions!
 # M.newState(name='I', axesInit={"Disease Progression": InitProgression, "District": None, "Age": None, "Gender": None})
 # infected (not detected):
 M.newState(name='I', axesInit={"Disease Progression": 0, "District": 0, "Age": 0, "Gender": 0})
 # cured (not detected):
 M.newState(name='C', axesInit={"District": 0, "Age": 0, "Gender": 0})
-T0 = M.newVariables({"T0": 55.5 * np.ones(InitPopul.shape, stm.CalcFloatStr)}, forcePos=False)  # time at which a delta is injected into the start of the progression axis
+T0 = M.newVariables({"T0": 34.0 * np.ones(M.Axes['District'].shape, stm.CalcFloatStr)}, forcePos=False)  # time at which a delta is injected into the start of the progression axis
 # the initial infection is generated by "injecting" a Gaussian (to be differentiable)
-M.addRate('S', 'I', lambda t: I0 * M.initGaussianT0(T0, t), queueDst='Disease Progression', hasTime=True)
-r0 = M.newVariables({'r0': 2.0 / InitPopul}, forcePos=True)
-M.addRate(('S', 'I'), 'I', r0, queueDst="Disease Progression")  # S ==> I[0]
+M.addRate('S', 'I', lambda t: I0() * M.initGaussianT0(T0(), t), queueDst='Disease Progression', hasTime=True)
+# Age-dependent base rate of infection
+r0 = M.newVariables({'r0': 0.2*np.ones(M.Axes['Age'].shape, stm.CalcFloatStr)}, forcePos=True)
+aT0 = M.newVariables({'aT0': 75.0}, forcePos=True) # awarenessTime
+aBase = M.newVariables({'aBase': 0.7}, forcePos=True) # residual relative rate after awareness effect
+awareness = lambda t: M.initSigmoidDropT0(aT0(), t, 10.0, aBase()) # 40% drop in infection rate
+M.addRate(('S', 'I'), 'I', lambda t: r0()/ InitPopul * awareness(t), queueDst="Disease Progression", hasTime=True)  # S ==> I[0]
 M.addRate('I', 'C', 1.0, queueSrc="Disease Progression")  # I --> C when through the queue
 
 # --- The (undetected) quarantine process:
@@ -78,25 +100,32 @@ M.addRate('I', 'C', 1.0, queueSrc="Disease Progression")  # I --> C when through
 M.newState(name='Sq', axesInit={"Age": 0, "Quarantine": 0, "District": 0, "Gender": 0})
 # infected, quarantined
 M.newState(name='Iq', axesInit={"Age": 0, "Disease Progression": 0, "District": 0, "Gender": 0})
-q = 0.001 # has to be a time-dependent rate!
-M.addRate('S', 'Sq', q, queueDst="Quarantine")  # S -q-> Sq
+q = M.newVariables({"q": 0.20}, forcePos=True)  # quarantine ratio (of all ppl.) modeled as a Gaussian (see below)
+sigmaQ = 3.0
+LockDown = 80
+lockDownFct = lambda t: q() * M.initGaussianT0(LockDown, t, sigmaQ)
+M.addRate('S', 'Sq', lockDownFct, queueDst='Quarantine', hasTime=True)
+# M.addRate('S', 'Sq', q, queueDst="Quarantine")  # S -q-> Sq
 M.addRate('Sq', 'S', 1.0, queueSrc="Quarantine")  # Sq --> S
-M.addRate('I', 'Iq', q)  # S -q-> Sq
+M.addRate('I', 'Iq', lockDownFct, hasTime=True)  # S -q-> Sq
 M.addRate('Iq', 'C', 1.0, queueSrc="Disease Progression")  # Iq --> C when through the infection queue. Quarantine does not matter any more
 # ---------- detecting some of the infected:
 # detected quarantine state:
 M.newState(name='Q', axesInit={"Age": 0, "Disease Progression": 0, "District": 0, "Gender": 0})  # no quarantine axis is needed, since the desease progression takes care of this
-d = M.newVariables({'d': 0.1}, forcePos=True)  # detection rate
+d = M.newVariables({'d': 0.026}, forcePos=True)  # detection rate
 M.addRate('I', 'Q', d)  # S -q-> Sq
 M.addRate('Iq', 'Q', d)  # detection by testing inside the quarantine
 # ---- hospitalizing the ill
 # hospitalized state:
 M.newState(name='H', axesInit={"Disease Progression": 0, "District": 0, "Age": 0, "Gender": 0})
 ht0 = M.newVariables({'ht0': 5.5}, forcePos=False)  # most probable time of hospitalization
-h = M.newVariables({'h': 0.02})  # rate of hospitalization, should be age dependent
+h = M.newVariables({'h': 0.06})  # rate of hospitalization, should be age dependent
 # influx = M.newVariables({'influx': 0.0001})  # a district dependent variable of initially infected
 # infectionRate = lambda I: (I + influx) * M.Var['r0']
-hospitalization = lambda: h() * M.Axes['Disease Progression'].initGaussian(ht0, 3.0)
+AgeBorder = M.newVariables({'AgeBorder': 2.5}, forcePos=False, normalize=None)  # rate of hospitalization, should be age dependent
+AgeSigma = M.newVariables({'AgeSigma': 0.5}, forcePos=False, normalize=None)  # rate of hospitalization, should be age dependent
+hospitalization = lambda: h() * M.Axes['Disease Progression'].initGaussian(ht0(), 3.0) * \
+                          M.Axes['Age'].initSigmoid(AgeBorder(), AgeSigma())
 M.addRate('I', 'H', hospitalization)  # I[t] -> H[t]
 M.addRate('Q', 'H', hospitalization)  # Q[t] -> H[t]
 M.addRate('Iq', 'H', hospitalization)  # Iq[t] -> H[t]
@@ -122,7 +151,7 @@ M.addResult('detected', lambda State: tf.reduce_sum(State['H'], 1) + tf.reduce_s
 
 # M.toFit(['r0', 'hr', 'ht0', 'I0'])
 # M.toFit(['r0', 'I0'])
-M.toFit(['T0', 'r0', 'h'])
+M.toFit(['T0', 'r0', 'h', 'aT0', 'aBase', 'I0', 'q', 'd'])
 # M.toFit(['r0'])
 
 # simulated = M.simulate('simulated', {'detected': None}, Tmax=Tmax)
@@ -131,19 +160,36 @@ M.toFit(['T0', 'r0', 'h'])
 
 if False:
     otype = "L-BFGS"
-    lossScale = 1  # 1e4
+    lossScale = 1.0  # 1e4
     oparam = {"normFac": 'max'}
 else:
     # ToDo the local normFac is not yet recognized for the below methods
     lossScale = None
     otype = "nesterov"  # "adagrad"  "adadelta" "SGD" "nesterov"  "adam"
-    learnrate = {"nesterov": 1000000.0, "adam": 7e-7}
-    oparam = {"learning_rate": learnrate[otype]}
+    learnrate = {"nesterov": 3000.0, "adam": 7e-7}
+    oparam = {"learning_rate": tf.constant(learnrate[otype], dtype=stm.CalcFloatStr)}
 # oparam['noiseModel'] = 'Poisson'
 oparam['noiseModel'] = 'Gaussian'
 # oparam['noiseModel'] = 'ScaledGaussian'  # is buggy? Why the NaNs?
 
-NIter = 150
-fittedVars, fittedRes = M.fit({'detected': MeasDetected[:, :, :, 0:1] / PopSum}, Tmax, otype=otype, oparam=oparam, NIter=NIter, verbose=True, lossScale=lossScale)
-M.showResults(ylabel='occupancy', dims=("District"))
-M.showStates(MinusOne=('S'))
+measured = MeasDetected[:, :, :, 0:2] / PopSum
+NIter = 20
+
+# tf.config.experimental_run_functions_eagerly(True)
+
+xlim = None # (60,100)
+fittedVars, fittedRes = M.fit({'detected': measured}, Tmax, otype=otype, oparam=oparam, NIter=NIter, verbose=True, lossScale=lossScale)
+M.showResults(title="District Distribution", ylabel='occupancy', xlim = xlim, dims=("District"))
+M.showStates(MinusOne=('S'), dims2d=("time", "District"))
+
+M.showResults(title="Age Distribution", ylabel='occupancy', xlim = xlim, dims=("Age"))
+
+# np.sum(measured[-1,:,:,:],(0,2))*PopSum / Pop  # detected per population
+plt.figure('hospitalization');plt.imshow(np.squeeze(hospitalization()))
+
+np.mean(fittedVars['T0'])
+np.mean(fittedVars['r0'])
+fittedVars['h']
+fittedVars['aT0']
+fittedVars['aBase']
+fittedVars['d']

@@ -4,9 +4,9 @@ import StateModeling as stm
 NumMolecules = 4
 M = stm.Model()  # creates a new Model instance
 M.newState(name='S0', axesInit=0.0)  # ground state
-S1 = M.newVariables({'S1': 0.001}, forcePos=True)  # transition rate
+S1 = M.newVariables({'S1': 1.0}, forcePos=True, normalize=True)  # transition rate
 M.newState(name='S1', axesInit=S1)  # excited state. Systems starts in the excited state
-true_I0 = 1200.0;
+true_I0 = 1200.0
 true_k = 0.135
 M.newVariables({'k': true_k}, forcePos=True)  # transition rate
 I0 = M.newVariables({'I0': true_I0})  # transition rate

@@ -17,9 +17,9 @@ M.newState(name='hospitalized', axesInit={'Disease Progression': 0.0})  # just t
 M.newState(name='recovered', axesInit=0.0)  # the ones that made it through the time series
 toHospitalRate = M.newVariables({"toHospitalTime": 7.0, "toHospitalSigma": 3.0, "toHospitalRate": 0.1}, forcePos=False)  # average time when sent to hospital, sigma and rate
 T0 = M.newVariables({"T0": 10.5}, forcePos=False)  # time at which a delta is injected into the progression
-M.addRate('susceptible', 'progression', lambda t: M.initGaussianT0(T0, t), queueDst='Disease Progression', hasTime=True)  # When you made it though the queue, you are recovered
-hospitalization = lambda: toHospitalRate * M.Axes['Disease Progression'].initGaussian(M.Var['toHospitalTime'],
-                                                                                        M.Var['toHospitalSigma'])
+M.addRate('susceptible', 'progression', lambda t: M.initGaussianT0(T0(), t), queueDst='Disease Progression', hasTime=True)  # When you made it though the queue, you are recovered
+hospitalization = lambda: toHospitalRate() * M.Axes['Disease Progression'].initGaussian(M.Var['toHospitalTime'](),
+                                                                                        M.Var['toHospitalSigma']())
 M.addRate('progression', 'hospitalized', hospitalization)  # susc*infec --> infec second order rate
 M.addRate('hospitalized', 'recovered', 1.0, queueSrc='Disease Progression')  # When you made it though the queue, you are recovered
 M.addRate('hospitalized', 'hospitalized', 0.05, queueSrc='total', queueDst='Disease Progression')  # add some chance to start over

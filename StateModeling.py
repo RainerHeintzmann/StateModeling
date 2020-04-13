@@ -165,10 +165,10 @@ def optimizer(loss, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_ra
         myOptimizer = lambda: iterativeOptimizer(myoptim, NIter, loss, verbose=verbose)
     # these optimizers perform the whole iteration
     elif otype == 'L-BFGS':
-        normFac = None
-        if "normFac" in oparam:  # "max", "mean" or None
-            normFac = oparam["normFac"]
-        func = funfac.function_factory(loss, var_list, normFactors=normFac)
+        # normFac = None
+        # if "normFac" in oparam:  # "max", "mean" or None
+        #     normFac = oparam["normFac"]
+        func = funfac.function_factory(loss, var_list)  # normFactors=normFac
         # convert initial model parameters to a 1D tf.Tensor
         init_params = func.initParams()  # retrieve the (normalized) initialization parameters
         # use the L-BFGS solver
@@ -187,7 +187,8 @@ def optimizer(loss, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_ra
 def LBFGSWrapper(func, init_params, NIter):
     optim_results = tfp.optimizer.lbfgs_minimize(value_and_gradients_function=func,
                                                  initial_position=init_params,
-                                                 tolerance=1e-8,
+                                                 tolerance=1e-6,
+                                                 num_correction_pairs=5,
                                                  max_iterations=NIter)
     # f_relative_tolerance = 1e-6
     # converged, failed,  num_objective_evaluations, final_loss, final_gradient, position_deltas,  gradient_deltas
@@ -242,25 +243,26 @@ def monotonicPos(val, b2=1.0):
     mysqrt = tf.sqrt(b2 + tf.square(val) / 4.0)
 
     def grad(dy):
-        return dy * (0.5 + tf.abs(val) / mysqrt / 4.0), None  #
+        return dy * (0.5 + val / mysqrt / 4.0), None  # no abs here!
 
-#    return mysqrt + val / 2.0, grad   # This is the original simple equation, but it is numerically very unstable for small numbers!
-# slightly better but not good:
-#    return val * (0.5 + tf.sign(val) * tf.sqrt(b2/tf.square(val)+0.25)), grad
-    taylor1 = b2/(2.0*mysqrt)
-    diff = val/2.0+mysqrt  # for negative values this is a difference
-    #print('diff: ' + str(diff)+", val"+str(val)+" taylor:"+str(taylor1))
+    #    return mysqrt + val / 2.0, grad   # This is the original simple equation, but it is numerically very unstable for small numbers!
+    # slightly better but not good:
+    #    return val * (0.5 + tf.sign(val) * tf.sqrt(b2/tf.square(val)+0.25)), grad
+    taylor1 = b2 / (2.0 * mysqrt)
+    diff = val / 2.0 + mysqrt  # for negative values this is a difference
+    # print('diff: ' + str(diff)+", val"+str(val)+" taylor:"+str(taylor1))
     # if tf.abs(diff/val) < 2e-4:   # this seems a good compromise between finite subtraction and taylor series
-    Order2N = val*tf.where(tf.abs(diff/val) < 2e-4, taylor1, diff)
-    p = taylor1 + (b2+Order2N)/(2.0*mysqrt), grad  # this should be numerically more stable
+    Order2N = val * tf.where(tf.abs(diff / val) < 2e-4, taylor1, diff)
+    p = taylor1 + (b2 + Order2N) / (2.0 * mysqrt), grad  # this should be numerically more stable
     return p
+
 
 # This monotonic positive function is based on a Hyperbola modified that one of the branches appraoches zero and the other one reaches a slope of one
 def invMonotonicPos(invinput, b2=1.0, Eps=0.0):
     # a constant value > 0.0 0 which regulates the shape of the hyperbola. The bigger the smoother it becomes.
     tfinit = tf.clip_by_value(invinput, clip_value_min=tf.constant(Eps, dtype=CalcFloatStr),
                               clip_value_max=tf.constant(np.Inf, dtype=CalcFloatStr))  # assertion to obtain only positive input for the initialization
-#    return tf.cast(tfinit - (tf.constant(b2) / tfinit), dtype=CalcFloatStr)  # the inverse of monotonicPos
+    #    return tf.cast(tfinit - (tf.constant(b2) / tfinit), dtype=CalcFloatStr)  # the inverse of monotonicPos
     return (tf.square(tfinit) - b2) / tfinit  # the inverse of monotonicPos
 
 
@@ -600,7 +602,7 @@ def cumulate(rki_data, df):
 
     # CumulMale = np.zeros(dayLast-day1); CumulFemale = np.zeros(dayLast-day1)
     # TMale = 0; TFemale = 0; # TAge = zeros()
-    prevday = -1;
+    prevday = -1
 
     for index, row in rki_data.iterrows():
         myLKId = row['IdLandkreis']
@@ -672,12 +674,14 @@ class Axis:
             x = totensor(x)
         return x
 
-    def __init__(self, name, numAxis, maxAxes, entries=1, queue=False):
+    def __init__(self, name, numAxis, maxAxes, entries=1, queue=False, labels=None):
         self.name = name
         self.queue = queue
         self.shape = np.ones(maxAxes, dtype=int)
         self.shape[-numAxis] = entries
         self.curAxis = numAxis
+        self.Labels = labels
+
         # self.initFkt = self.initZeros()
 
     def __str__(self):
@@ -797,15 +801,18 @@ class Model:
         self.Progression = {}  # dictionary storing the state and resultVal(s) progression (List per Key)
         np.random.seed(rand_seed)
 
-    def addAxis(self, name, entries, queue=False):
-        axis = Axis(name, self.curAxis, self.maxAxes, entries, queue)
+    def addAxis(self, name, entries, queue=False, labels=None):
+        axis = Axis(name, self.curAxis, self.maxAxes, entries, queue, labels)
         self.curAxis += 1
         self.Axes[name] = axis
         self.RegisteredAxes.append(axis)
 
     def initGaussianT0(self, t0, t, sig=2.0):
         initVals = tf.exp(-(t - t0) ** 2. / (2 * (sig ** 2.)))
-        # initVals = initVals / tf.reduce_sum(input_tensor=initVals)  # normalize (numerical !, since the domain is not infinite)
+        return initVals
+
+    def initSigmoidDropT0(self, t0, t, sig, dropTo=0.0):
+        initVals = (1.-dropTo) / (1. + tf.exp((t - t0) / sig)) + dropTo
         return initVals
 
     def newState(self, name, axesInit=None, makeInitVar=False):
@@ -861,11 +868,16 @@ class Model:
             prodAx = res
         self.State[name] = prodAx
 
-    def newVariables(self, VarList=None, forcePos=True, normalize='max', b2=1.0):
+    def newVariables(self, VarList=None, forcePos=True, normalize='max', b2=1.0, overwrite=True):
         if VarList is not None:
             for name, initVal in VarList.items():
                 if name in self.Var:
-                    raise ValueError("Variable " + name + " was previously defined.")
+                    if not overwrite:
+                        raise ValueError("Variable " + name + " was previously defined.")
+                    else:
+                        self.assignNewVar(name, initVal)
+                        print('assigned new value to variable: '+name)
+                    continue
                 if name in self.State:
                     raise ValueError("Variable " + name + " is already defined as a State.")
                 if name in self.ResultVals:
@@ -890,12 +902,24 @@ class Model:
                 self.toRawVar[name] = toRawFkt3
                 self.rawVar[name] = rawvar  # this is needed for optimization
                 self.Var[name] = lambda: toVarFkt3(rawvar)
+                self.Original[name] = rawvar.numpy()  # store the original
+
         return self.Var[name]  # return the last variable for convenience
+
+    def restoreOriginal(self):
+        for varN, rawval in self.Original.items():
+            self.rawVar[varN].assign(rawval)
+
+    def assignNewVar(self, varname, newval=None, relval=None):
+        if newval is not None:
+            self.rawVar[varname].assign(self.toRawVar[varname](newval))
+        else:
+            self.rawVar[varname].assign(self.toRawVar[varname](self.Var[varname]() * relval))
 
     def addRate(self, fromState, toState, rate, queueSrc=None, queueDst=None, name=None, hasTime=False):  # S ==> I[0]
         if queueSrc is not None:
             ax = self.QueueStates[fromState]
-            if queueSrc != ax.name:
+            if queueSrc != ax.name and queueSrc != "total":
                 raise ValueError('The source state ' + fromState + ' does not have an axis named ' + queueSrc + ', but it was given as queueSrc.')
         if queueDst is not None:
             ax = self.QueueStates[toState]
@@ -1046,10 +1070,10 @@ class Model:
 
     def traceModel(self, Tmax, verbose=True):
         print("tracing traceModel")
-        tf.print("running traceModel")
-        State = self.evalLambdas(self.State)
+        # tf.print("running traceModel")
+        State = self.State.copy()  # to ensure that self is not overwritten
+        State = self.evalLambdas(State)
         State = self.checkDims(State)
-#        State = State.copy()
         self.ResultVals = {}
         self.Progression = {}
         self.recordResults(State)
@@ -1061,6 +1085,7 @@ class Model:
             self.recordResults(State)
         print()
         self.cleanupResults()
+        print(" .. done\n")
         return State
 
     def addResult(self, name, anEquation):
@@ -1079,7 +1104,7 @@ class Model:
     @tf.function
     def doBuildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10, oparam={"noiseModel": "Gaussian"}):
         print("tracing doBuildModel")
-        tf.print("running doBuildModel")
+        # tf.print("running doBuildModel")
         finalState = self.traceModel(Tmax)
         Loss = None
         for predictionName, measured in dictToFit.items():
@@ -1155,25 +1180,23 @@ class Model:
         for name, relDist in var_list.items():
             var = self.Var[name]
             if callable(var):
-                self.Original[name] = var().numpy()
                 self.rawVar[name].assign(self.toRawVar[name](var() * tf.constant(relDist)))
                 self.Distorted[name] = var().numpy()
             else:
-                self.Original[name] = var.numpy()
                 self.Var[name].assign(self.Var[name] * relDist)
                 self.Distorted[name] = var.numpy()
 
     def fit(self, data_dict, Tmax, NIter=50, otype='L-BFGS', oparam={"learning_rate": None}, verbose=False, lossScale=None):
-        if "normFac" not in oparam:
-            oparam["normFac"] = "max"
+        # if "normFac" not in oparam:
+        #     oparam["normFac"] = "max"
         if "learning_rate" not in oparam:
             oparam["learning_rate"] = None
 
         self.Measurements = {}
         for predictionName, measured in data_dict.items():
-            data_dict[predictionName] = measured.astype(CalcFloatStr)
+            data_dict[predictionName] = tf.constant(measured, CalcFloatStr)
             self.Measurements['measured'] = {}
-            self.Measurements['measured'][predictionName] = measured.astype(CalcFloatStr)  # save as measurement for plot
+            self.Measurements['measured'][predictionName] = data_dict[predictionName]  # save as measurement for plot
 
         loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
 
@@ -1187,6 +1210,7 @@ class Model:
             lossScale = 1.0
         result_dict = lambda: loss_fn()[1]
         progression_dict = lambda: loss_fn()[2]
+        self.Loss = loss_fnOnly
 
         opt = optimizer(loss_fnOnly, otype=otype, oparam=oparam, NIter=NIter, var_list=FitVars, verbose=verbose)
         opt.optName = otype  # just to store this
@@ -1194,6 +1218,7 @@ class Model:
             res = Optimize(opt, loss=loss_fnOnly, lossScale=lossScale)  # self.ResultVals.items()
         else:
             res = loss_fnOnly()
+            print("Loss is: " + str(res))
         self.ResultVals = result_dict  # stores how to calculate results
         ResultVals = result_dict()  # calculates the results
         self.Progression = progression_dict
@@ -1210,7 +1235,32 @@ class Model:
             self.FitResultVals[varN] = ResultVals[varN]  # .numpy() # res[n]
         return self.FitResultVars, self.FitResultVals
 
+    def findAxis(self, d):
+        """
+        d can be an axis label or an axis number
+        """
+        if isinstance(d, str):
+            return self.Axes[d]
+        else:
+            # if d == 0:
+            #     raise ValueError("The axes numbers start with one or be negative!")
+            if d < 0:
+                for axN, ax in self.Axes.items():
+                    if ax.curAxis == -d:
+                        return ax
+            else:
+                for axN, ax in self.Axes.items():
+                    if ax.curAxis == len(self.Axes) - d:
+                        return ax
+                # d = -d
+            raise ValueError("Axis not found.")
+
     def selectDims(self, toPlot, dims=None, includeZero=False):
+        """
+            selects the dimensions to plot and returns a list of labels
+            The result is summed over all the other dimensions
+        """
+        labels = []
         if dims is None:
             toPlot = np.squeeze(toPlot)
             if toPlot.ndim > 1:
@@ -1221,17 +1271,22 @@ class Model:
             if includeZero:
                 rd = list(range(1, toPlot.ndim))  # already exclude the zero axis from being deleted here.
             else:
-                rd = list(range(toPlot.ndim))
+                rd = list(range(toPlot.ndim))  # choose all dimensions
             for d in dims:
-                if isinstance(d, str):
-                    d = - self.Axes[d].curAxis
+                if d == "time":
+                    d = 0
+                    labels.append("time")
+                else:
+                    ax = self.findAxis(d)
+                    d = - ax.curAxis
+                    labels.append(ax.Labels)
                 if d < 0:
                     d = toPlot.ndim + d
                 rd.remove(d)
             toPlot = np.sum(toPlot, tuple(rd))
-        return toPlot
+        return toPlot, labels
 
-    def showResults(self, title='Results', xlabel='time step', ylabel='probability', dims=None, legendPlacement='upper left'):
+    def showResults(self, title='Results', xlabel='time step', xlim=None, ylabel='probability', dims=None, legendPlacement='upper left'):
         # Plot results
         plt.figure(title)
         plt.title(title)
@@ -1247,21 +1302,21 @@ class Model:
         # n=0
         for resN, dict in self.Measurements.items():
             for dictN, toPlot in dict.items():
-                toPlot = self.selectDims(toPlot, dims=dims, includeZero=True)
+                toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
                 plt.plot(toPlot, styles[n])
                 if toPlot.ndim > 1:
                     for d in range(toPlot.shape[1]):
-                        legend.append(resN + "_" + dictN + "_" + str(d))
+                        legend.append(resN + "_" + dictN + "_" + labels[0][d])
                 else:
                     legend.append(resN + "_" + dictN)
             plt.gca().set_prop_cycle(None)
             n += 1
         for dictN, toPlot in self.FitResultVals.items():
-            toPlot = self.selectDims(toPlot, dims=dims, includeZero=True)
+            toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
             plt.plot(toPlot, styles[n])
             if toPlot.ndim > 1:
                 for d in range(toPlot.shape[1]):
-                    legend.append("Fit_" + dictN + "_" + str(d))
+                    legend.append("Fit_" + dictN + "_" + labels[0][d])
         else:
             legend.append("Fit_" + "_" + dictN)
         plt.legend(legend, loc=legendPlacement)
@@ -1269,6 +1324,8 @@ class Model:
             plt.xlabel(xlabel)
         if ylabel is not None:
             plt.ylabel(ylabel)
+        if xlim is not None:
+            plt.xlim(xlim[0],xlim[1])
 
     def sumOfStates(self, Progression):
         sumStates = 0
@@ -1299,24 +1356,27 @@ class Model:
             if varN not in exclude:
                 sh = np.array(Progression[varN].shape, dtype=int)
                 pdims = np.nonzero(sh > 1)
-                toPlot = np.squeeze(Progression[varN])
+                toPlot = Progression[varN]  # np.squeeze(
                 myLegend = varN
-                if toPlot.ndim > 1:
+                if np.squeeze(toPlot).ndim > 1:
                     plt.figure(10 + N)
                     plt.ylabel(xlabel)
-                    plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
                     N += 1
                     plt.title("State " + varN)
-                    toPlot2 = self.selectDims(toPlot, dims=dims2d)
+                    toPlot2, labels = self.selectDims(toPlot, dims=dims2d)
+                    toPlot2 = np.squeeze(toPlot2)
                     plt.imshow(toPlot2, aspect="auto")
-                    toPlot = self.selectDims(toPlot, dims=dims)
+                    #plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
+                    plt.xlabel(dims2d[1])
+                    plt.xticks(range(toPlot2.shape[1]), labels[1], rotation='vertical')
+                    toPlot, labels = self.selectDims(toPlot, dims=dims)
                     if varN in MinusOne:
                         toPlot = toPlot - 1.0
                         myLegend = myLegend + "-1"
                     myLegend = myLegend + " (summed)"
                     plt.colorbar()
                 plt.figure(10)
-                plt.plot(toPlot)
+                plt.plot(np.squeeze(toPlot))
                 legend.append(myLegend)
         plt.legend(legend, loc=legendPlacement)
         if xlabel is not None:
@@ -1332,11 +1392,11 @@ class Model:
                 print("Comparison " + varN + "Distorted:" + str(dist) + ", Original: " + str(orig) + ", fit: " + str(fit) + ", rel. error:" + str(np.max((fit - orig) / orig)))
             else:
                 plt.figure("Comparison " + varN)
-                dist = self.selectDims(dist, dims=dims)
+                dist, labelsD = self.selectDims(dist, dims=dims)
                 plt.plot(dist)
-                orig = self.selectDims(orig, dims=dims)
+                orig, labelsO = self.selectDims(orig, dims=dims)
                 plt.plot(orig)
-                fit = self.selectDims(fit, dims=dims)
+                fit, labelsF = self.selectDims(fit, dims=dims)
                 plt.plot(fit)
                 plt.legend(["distorted", "original", "fit"], loc=legendPlacement)
 
