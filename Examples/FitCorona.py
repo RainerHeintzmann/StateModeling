@@ -1,4 +1,7 @@
 # This example is written for the new interface
+# This is the full COVID-19 model to be fitted to the RKI data
+# see the PPT for details of the model design
+
 import StateModeling as stm
 import numpy as np
 import matplotlib.pyplot as plt
@@ -96,8 +99,8 @@ T0 = M.newVariables({"T0": 34.0 * np.ones(M.Axes['District'].shape, stm.CalcFloa
 M.addRate('S', 'I', lambda t: I0() * M.initGaussianT0(T0(), t), queueDst='Disease Progression', hasTime=True)
 # Age-dependent base rate of infection
 r0 = M.newVariables({'r0': 2.15 * np.ones(M.Axes['Age'].shape, stm.CalcFloatStr)}, forcePos=True)
-aT0 = M.newVariables({'aT0': 80.0}, forcePos=True)  # awarenessTime
-aSigma = 10.0
+aT0 = M.newVariables({'aT0': 75.0}, forcePos=True)  # awarenessTime
+aSigma = 4.0
 aBase = M.newVariables({'aBase': 0.5}, forcePos=True)  # residual relative rate after awareness effect
 awareness = lambda t: M.initSigmoidDropT0(aT0(), t, aSigma, aBase())  # 40% drop in infection rate
 it0 = M.newVariables({'it0': 3.5}, forcePos=True) # day of most probably infection
@@ -187,7 +190,7 @@ oparam['noiseModel'] = 'Gaussian'
 
 measured = MeasDetected[:, :, :, 0:2] / PopSum
 measuredDead = MeasDead[:, :, :, 0:2] / PopSum
-NIter = 80
+NIter = 500
 
 # tf.config.experimental_run_functions_eagerly(True)
 
@@ -220,3 +223,6 @@ plt.xlim(45, len(Dates))
 plt.tight_layout()
 plt.hlines(0.25, 0, len(Dates), linestyles="dashed")
 # plt.vlines(11*7, 0, 5, linestyles="dashed")
+
+plt.figure("Awareness reduction")
+plt.plot(awareness(np.arange(0,100)))
