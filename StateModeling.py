@@ -588,6 +588,7 @@ def cumulate(rki_data, df):
     Area = np.zeros(len(LKs))
     PopW = np.zeros(len(LKs))
     PopM = np.zeros(len(LKs))
+    allDates = (dayLast - day1 + 1)*['']
 
     df = df.set_index('Key')
     # IDs = [int(ID) for ID in IDs]
@@ -616,6 +617,7 @@ def cumulate(rki_data, df):
         # datetime = pd.to_datetime(row['Meldedatum'], unit='ms').to_pydatetime()
         day = toDay(row['Meldedatum']) - day1  # convert to days with an offset
         # print(day)
+        allDates[day] = pd.to_datetime(row["Meldedatum"], unit='ms').strftime("%d.%m.%Y") #dayfirst=True, yearfirst=False
         myAge = Ages.index(row['Altersgruppe'])
         myG = Gender.index(row['Geschlecht'])
         AnzahlFall = row['AnzahlFall']
@@ -624,8 +626,8 @@ def cumulate(rki_data, df):
         AllCumulCase[prevday + 1:day + 1, :, :, :] = CumulSumCase
         CumulSumDead[myLK, myAge, myG] += AnzahlTodesfall
         AllCumulDead[prevday + 1:day + 1, :, :, :] = CumulSumDead
-        prevday = day
-    return AllCumulCase, AllCumulDead, (IDs, LKs, PopM, PopW, Area, Ages, Gender)
+        prevday = day-1
+    return AllCumulCase, AllCumulDead, (IDs, LKs, PopM, PopW, Area, Ages, Gender, allDates)
 
 
 def plotAgeGroups(res1, res2):
@@ -916,7 +918,7 @@ class Model:
         else:
             self.rawVar[varname].assign(self.toRawVar[varname](self.Var[varname]() * relval))
 
-    def addRate(self, fromState, toState, rate, queueSrc=None, queueDst=None, name=None, hasTime=False):  # S ==> I[0]
+    def addRate(self, fromState, toState, rate, queueSrc=None, queueDst=None, name=None, hasTime=False, hoSumDims=None):  # S ==> I[0]
         if queueSrc is not None:
             ax = self.QueueStates[fromState]
             if queueSrc != ax.name and queueSrc != "total":
@@ -925,8 +927,9 @@ class Model:
             ax = self.QueueStates[toState]
             if queueDst != ax.name:
                 raise ValueError('The destination state ' + toState + ' does not have an axis named ' + queueDst + ', but it was given as queueDst.')
-
-        self.Rates.append([fromState, toState, rate, queueSrc, queueDst, name, hasTime])
+        if hoSumDims is not None:
+            hoSumDims = [- self.Axes[d].curAxis for d in hoSumDims]
+        self.Rates.append([fromState, toState, rate, queueSrc, queueDst, name, hasTime, hoSumDims])
 
     def findString(self, name, State=None):
         if State is None:
@@ -946,7 +949,7 @@ class Model:
         toQueue = {}  # stores the items to enter into the destination object
         # insert here the result variables
         OrigStates = State.copy()  # copies the dictionary but NOT the variables in it
-        for fromName, toName, rate, queueSrc, queueDst, name, hasTime in self.Rates:
+        for fromName, toName, rate, queueSrc, queueDst, name, hasTime, hoSumDims in self.Rates:
             if isinstance(rate, str):
                 rate = self.findString(rate)
             higherOrder = None
@@ -973,7 +976,11 @@ class Model:
             transferred = fromState * rate  # calculate the transfer for this rate equation
             if higherOrder is not None:
                 for hState in higherOrder:
-                    transferred = transferred * OrigStates[hState]  # apply higher order rates
+                    if hoSumDims is None:
+                        hoSum = OrigStates[hState]
+                    else:
+                        hoSum = tf.reduce_sum(OrigStates[hState], hoSumDims, keepdims=True)
+                    transferred = transferred * hoSum  # apply higher order rates
             try:
                 toState = OrigStates[toName]
             except KeyError:
@@ -1327,9 +1334,10 @@ class Model:
         if xlim is not None:
             plt.xlim(xlim[0],xlim[1])
 
-    def sumOfStates(self, Progression):
+    def sumOfStates(self, Progression, sumcoords=None):
         sumStates = 0
-        sumcoords = tuple(np.arange(self.maxAxes + 1)[1:])
+        if sumcoords is None:
+            sumcoords = tuple(np.arange(self.maxAxes + 1)[1:])
         for name, state in Progression.items():
             sumStates = sumStates + np.sum(state.numpy(), axis=sumcoords)
         return sumStates
@@ -1345,12 +1353,11 @@ class Model:
         else:
             Progression = self.Progression
 
-        sumStates = np.squeeze(self.sumOfStates(Progression))
+        sumStates = np.squeeze(self.sumOfStates(Progression, (1,2,3)))
         initState = sumStates[0]
         meanStates = np.mean(sumStates)
         maxDiff = np.max(abs(sumStates - initState))
         print("Sum of states deviates by: " + str(maxDiff) + ", from the starting state. relative: " + str(maxDiff / initState))
-
         N = 1
         for varN in Progression:
             if varN not in exclude:
