@@ -567,6 +567,9 @@ def cumulate(rki_data, df):
     toDrop = []
     toDropID = []
     ValidIDs = df['Key'].to_numpy()
+    print("rki_data (before drop): " + str(np.sum(rki_data.to_numpy()[:,5])))
+    # sumDropped=0
+    rki_data = rki_data.set_index('ObjectId') # to make it unique
     for index, row in rki_data.iterrows():
         myId = int(row['IdLandkreis'])
         if myId not in ValidIDs:
@@ -575,7 +578,11 @@ def cumulate(rki_data, df):
                 print("WARNING: RKI-data district " + str(myId) + ", " + myLK + " is not in census. Dropping this data.")
                 toDropID.append(myId)
             toDrop.append(index)
+            # print("Dropping: "+str(index)+", "+str(myLK))
+            # sumDropped += int(row['AnzahlFall'])
+            # print("Dropped: "+str(sumDropped))
     rki_data = rki_data.drop(toDrop)
+    print("rki_data (directly after drop): " + str(np.sum(rki_data.to_numpy()[:,5])))
 
     IDs = getLabels(rki_data, 'IdLandkreis')
     LKs = getLabels(rki_data, 'Landkreis')
@@ -585,6 +592,8 @@ def cumulate(rki_data, df):
     AllCumulCase = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
     CumulSumDead = np.zeros([len(LKs), len(Ages), len(Gender)])
     AllCumulDead = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
+    CumulSumCured = np.zeros([len(LKs), len(Ages), len(Gender)])
+    AllCumulCured = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
     Area = np.zeros(len(LKs))
     PopW = np.zeros(len(LKs))
     PopM = np.zeros(len(LKs))
@@ -604,7 +613,7 @@ def cumulate(rki_data, df):
     # CumulMale = np.zeros(dayLast-day1); CumulFemale = np.zeros(dayLast-day1)
     # TMale = 0; TFemale = 0; # TAge = zeros()
     prevday = -1
-
+    sumTotal = 0
     for index, row in rki_data.iterrows():
         myLKId = row['IdLandkreis']
         myLK = LKs.index(row['Landkreis'])
@@ -620,14 +629,36 @@ def cumulate(rki_data, df):
         allDates[day] = pd.to_datetime(row["Meldedatum"], unit='ms').strftime("%d.%m.%Y") #dayfirst=True, yearfirst=False
         myAge = Ages.index(row['Altersgruppe'])
         myG = Gender.index(row['Geschlecht'])
-        AnzahlFall = row['AnzahlFall']
-        AnzahlTodesfall = row['AnzahlTodesfall']
+        NeuerFall = row['NeuerFall']  # see the fetch_data.py file for the details of what NeuerFall means.
+        if NeuerFall == -1:
+            AnzahlFall = 0
+        else:
+            AnzahlFall = row['AnzahlFall']
+        sumTotal += AnzahlFall
+        NeuerTodesFall = row['NeuerTodesfall']  # see the fetch_data.py file for the details of what NeuerFall means.
+        if NeuerTodesFall == 0 or NeuerTodesFall == 1: # only new cases are counted. NeuerTodesFall == 0 or
+            AnzahlTodesfall = row['AnzahlTodesfall']
+        else:
+            AnzahlTodesfall = 0
+        NeuGenesen = row['NeuGenesen']  # see the fetch_data.py file for the details of what NeuerFall means.
+        if NeuGenesen == 0 or NeuGenesen == 1: # only newly cured
+             AnzahlGenesen = row['AnzahlGenesen']
+        else:
+            AnzahlGenesen = 0
         CumulSumCase[myLK, myAge, myG] += AnzahlFall
         AllCumulCase[prevday + 1:day + 1, :, :, :] = CumulSumCase
         CumulSumDead[myLK, myAge, myG] += AnzahlTodesfall
         AllCumulDead[prevday + 1:day + 1, :, :, :] = CumulSumDead
+        CumulSumCured[myLK, myAge, myG] += AnzahlGenesen
+        AllCumulCured[prevday + 1:day + 1, :, :, :] = CumulSumCured
+        if day < prevday:
+            print(row['Key'])
+            raise ValueError("Something is wrong: Meldedatum not correctly ordered")
         prevday = day-1
-    return AllCumulCase, AllCumulDead, (IDs, LKs, PopM, PopW, Area, Ages, Gender, allDates)
+
+    print("Total Cases: "+ str(sumTotal))
+    print("rki_data (at the end): " + str(np.sum(rki_data.to_numpy()[:,5])))
+    return AllCumulCase, AllCumulDead, AllCumulCured, (IDs, LKs, PopM, PopW, Area, Ages, Gender, allDates)
 
 
 def plotAgeGroups(res1, res2):
