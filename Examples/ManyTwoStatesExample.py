@@ -11,7 +11,7 @@ true_I0 = 1200 * np.random.normal(np.ones(NumMolecules), sigma)
 I0 = M.newVariables({'I0': true_I0})
 k = M.newVariables({'k': 0.02 * 1. / np.random.normal(np.ones(NumMolecules), sigma)})
 M.newState(name='S0', axesInit={'Different Molecules': M.Axes['Different Molecules'].init(0)})  # ground state
-M.newState(name='S1', axesInit={'Different Molecules': M.Axes['Different Molecules'].init(I0)})  # excited state. Systems starts in the excited state
+M.newState(name='S1', axesInit={'Different Molecules': M.Axes['Different Molecules'].init(I0())})  # excited state. Systems starts in the excited state
 
 M.addRate('S1', 'S0', 'k')  # S1 --> S0  first order decay leading to a single exponential decay
 M.addResult('detected', lambda State: State['S1'])  # ('I', 'S')

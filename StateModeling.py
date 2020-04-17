@@ -811,6 +811,7 @@ def reduceSumTo(State, dst):
 
 class Model:
     def __init__(self, name='stateModel', maxAxes=5, rand_seed=1234567):
+        self.__version__ = 1.0
         self.name = name
         self.maxAxes = maxAxes
         self.curAxis = 1
@@ -821,6 +822,7 @@ class Model:
         self.Var = {}  # may be variables or lambdas
         self.rawVar = {}  # saves the raw variables
         self.toRawVar = {}  # stores the inverse functions to initialize the rawVar
+        self.toVar = {}  # stores the function to get from the rawVar to the Var
         self.Original = {}  # here the values previous to a distortion are stored (for later comparison)
         self.Distorted = {}  # here the values previous to a distortion are stored (for later comparison)
         self.Simulations = {}
@@ -934,6 +936,7 @@ class Model:
                 rawvar = tf.Variable(toRawFkt3(initVal), name=name, dtype=CalcFloatStr)
                 self.toRawVar[name] = toRawFkt3
                 self.rawVar[name] = rawvar  # this is needed for optimization
+                self.toVar[name] = toVarFkt3
                 self.Var[name] = lambda: toVarFkt3(rawvar)
                 self.Original[name] = rawvar.numpy()  # store the original
 
@@ -1230,7 +1233,6 @@ class Model:
         if "learning_rate" not in oparam:
             oparam["learning_rate"] = None
 
-        self.Measurements = {}
         for predictionName, measured in data_dict.items():
             data_dict[predictionName] = tf.constant(measured, CalcFloatStr)
             self.Measurements['measured'] = {}
@@ -1425,9 +1427,12 @@ class Model:
     def compareFit(self, maxPrintSize=10, dims=None, legendPlacement='upper left'):
         for varN, orig in self.Original.items():
             fit = totensor(removeCallable(self.Var[varN])).numpy()
+            if varN not in self.Distorted:
+                continue
             dist = self.Distorted[varN]
+            orig = self.toVar[varN](orig).numpy() # convert from rawVar to Var
             if isNumber(fit) or np.prod(fit.shape) < maxPrintSize:
-                print("Comparison " + varN + "Distorted:" + str(dist) + ", Original: " + str(orig) + ", fit: " + str(fit) + ", rel. error:" + str(np.max((fit - orig) / orig)))
+                print("Comparison " + varN + ", Distorted:" + str(dist) + ", Original: " + str(orig) + ", fit: " + str(fit) + ", rel. error:" + str(np.max((fit - orig) / orig)))
             else:
                 plt.figure("Comparison " + varN)
                 dist, labelsD = self.selectDims(dist, dims=dims)
