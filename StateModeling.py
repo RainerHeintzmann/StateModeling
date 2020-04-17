@@ -561,9 +561,10 @@ def cumulate(rki_data, df):
     # rki_data.keys()  # IdBundesland', 'Bundesland', 'Landkreis', 'Altersgruppe', 'Geschlecht',
     #        'AnzahlFall', 'AnzahlTodesfall', 'ObjectId', 'Meldedatum', 'IdLandkreis'
     # TotalCases = 0;
-    rki_data = rki_data.sort_values('Meldedatum')
-    day1 = toDay(np.min(rki_data['Meldedatum']))
-    dayLast = toDay(np.max(rki_data['Meldedatum']))
+    whichDate = 'Refdatum'  # 'Meldedatum'
+    rki_data = rki_data.sort_values(whichDate)
+    day1 = toDay(np.min(rki_data[whichDate]))
+    dayLast = toDay(np.max(rki_data[whichDate]))
     toDrop = []
     toDropID = []
     ValidIDs = df['Key'].to_numpy()
@@ -588,10 +589,13 @@ def cumulate(rki_data, df):
     LKs = getLabels(rki_data, 'Landkreis')
     Ages = getLabels(rki_data, 'Altersgruppe')
     Gender = getLabels(rki_data, 'Geschlecht')
-    CumulSumCase = np.zeros([len(LKs), len(Ages), len(Gender)])
-    AllCumulCase = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
+    CumulSumCases = np.zeros([len(LKs), len(Ages), len(Gender)])
+    AllCumulCases = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
     CumulSumDead = np.zeros([len(LKs), len(Ages), len(Gender)])
     AllCumulDead = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
+    AllCases = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
+    AllDead = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
+    AllCured = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
     CumulSumCured = np.zeros([len(LKs), len(Ages), len(Gender)])
     AllCumulCured = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
     Area = np.zeros(len(LKs))
@@ -624,9 +628,12 @@ def cumulate(rki_data, df):
         PopW[myLK] = mySuppl['Bev. W']
         PopM[myLK] = mySuppl['Bev. M']
         # datetime = pd.to_datetime(row['Meldedatum'], unit='ms').to_pydatetime()
-        day = toDay(row['Meldedatum']) - day1  # convert to days with an offset
+        # day = toDay(row['Meldedatum']) - day1  # convert to days with an offset
+        day = toDay(row[whichDate]) - day1  # convert to days with an offset
+        # dayD = datetime.strptime(row['Datenstand'][:10], '%d.%m.%Y') - datetime(1970,1,1)
+        # rday = dayD.days - day1  # convert to days with an offset
         # print(day)
-        allDates[day] = pd.to_datetime(row["Meldedatum"], unit='ms').strftime("%d.%m.%Y") #dayfirst=True, yearfirst=False
+        allDates[day] = pd.to_datetime(row[whichDate], unit='ms').strftime("%d.%m.%Y") #dayfirst=True, yearfirst=False
         myAge = Ages.index(row['Altersgruppe'])
         myG = Gender.index(row['Geschlecht'])
         NeuerFall = row['NeuerFall']  # see the fetch_data.py file for the details of what NeuerFall means.
@@ -645,20 +652,27 @@ def cumulate(rki_data, df):
              AnzahlGenesen = row['AnzahlGenesen']
         else:
             AnzahlGenesen = 0
-        CumulSumCase[myLK, myAge, myG] += AnzahlFall
-        AllCumulCase[prevday + 1:day + 1, :, :, :] = CumulSumCase
+        AllCases[day, myLK, myAge, myG] += AnzahlFall
+        AllDead[day, myLK, myAge, myG] += AnzahlTodesfall
+        AllCured[day, myLK, myAge, myG] += AnzahlGenesen
+
+        CumulSumCases[myLK, myAge, myG] += AnzahlFall
+        AllCumulCases[prevday + 1:day + 1, :, :, :] = CumulSumCases
         CumulSumDead[myLK, myAge, myG] += AnzahlTodesfall
         AllCumulDead[prevday + 1:day + 1, :, :, :] = CumulSumDead
         CumulSumCured[myLK, myAge, myG] += AnzahlGenesen
         AllCumulCured[prevday + 1:day + 1, :, :, :] = CumulSumCured
         if day < prevday:
             print(row['Key'])
-            raise ValueError("Something is wrong: Meldedatum not correctly ordered")
+            raise ValueError("Something is wrong: dates are not correctly ordered")
         prevday = day-1
 
     print("Total Cases: "+ str(sumTotal))
     print("rki_data (at the end): " + str(np.sum(rki_data.to_numpy()[:,5])))
-    return AllCumulCase, AllCumulDead, AllCumulCured, (IDs, LKs, PopM, PopW, Area, Ages, Gender, allDates)
+    measured = {'CumulCases': AllCumulCases, 'CumulDead': AllCumulDead, 'Cases': AllCases, 'Dead': AllDead, 'Cured': AllCured,
+                'IDs': IDs, 'LKs':LKs, 'PopM': PopM, 'PopW': PopW, 'Area': Area, 'Ages':Ages, 'Gender': Gender, 'Dates': allDates}
+    # AllCumulCase, AllCumulDead, AllCumulCured, (IDs, LKs, PopM, PopW, Area, Ages, Gender, allDates)
+    return measured
 
 
 def plotAgeGroups(res1, res2):
@@ -811,7 +825,7 @@ def reduceSumTo(State, dst):
 
 class Model:
     def __init__(self, name='stateModel', maxAxes=5, rand_seed=1234567):
-        self.__version__ = 1.0
+        self.__version__ = 1.01
         self.name = name
         self.maxAxes = maxAxes
         self.curAxis = 1
@@ -1399,22 +1413,23 @@ class Model:
                 toPlot = Progression[varN]  # np.squeeze(
                 myLegend = varN
                 if np.squeeze(toPlot).ndim > 1:
-                    plt.figure(10 + N)
-                    plt.ylabel(xlabel)
-                    N += 1
-                    plt.title("State " + varN)
-                    toPlot2, labels = self.selectDims(toPlot, dims=dims2d)
-                    toPlot2 = np.squeeze(toPlot2)
-                    plt.imshow(toPlot2, aspect="auto")
-                    #plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
-                    plt.xlabel(dims2d[1])
-                    plt.xticks(range(toPlot2.shape[1]), labels[1], rotation='vertical')
+                    if dims2d is not None:
+                        plt.figure(10 + N)
+                        plt.ylabel(xlabel)
+                        N += 1
+                        plt.title("State " + varN)
+                        toPlot2, labels = self.selectDims(toPlot, dims=dims2d)
+                        toPlot2 = np.squeeze(toPlot2)
+                        plt.imshow(toPlot2, aspect="auto")
+                        #plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
+                        plt.xlabel(dims2d[1])
+                        plt.xticks(range(toPlot2.shape[1]), labels[1], rotation='vertical')
+                        plt.colorbar()
                     toPlot, labels = self.selectDims(toPlot, dims=dims)
                     if varN in MinusOne:
                         toPlot = toPlot - 1.0
                         myLegend = myLegend + "-1"
                     myLegend = myLegend + " (summed)"
-                    plt.colorbar()
                 plt.figure(10)
                 plt.plot(np.squeeze(toPlot))
                 legend.append(myLegend)
