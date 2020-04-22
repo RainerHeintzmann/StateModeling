@@ -59,6 +59,18 @@ else:
 defaultTFDataType = "float32"
 defaultTFCpxDataType = "complex64"
 
+def addDicts(dict1, dict2):
+    """Merge dictionaries and keep values of common keys in list"""
+    dict3 = {**dict1, **dict2}
+    for key, value in dict3.items():
+        if key in dict1 and key in dict2:
+            val2 = dict1[key]
+            if equalShape(value.shape, val2.shape):
+                dict3[key] = value + val2
+            else:
+                print('Shape 1: '+str(value.shape)+", shape 2:"+str(val2.shape))
+                raise ValueError('Shapes of transfer values to add are not the same')
+    return dict3
 
 def Init(noCuda=False):
     """
@@ -556,12 +568,99 @@ def getLabels(rki_data, label):
         labels = ['BRD']
     return labels
 
+def correctWeekdayEffect(RawCases):
+    s = RawCases.shape
+    nTimes = s[0]
+    weeks = nTimes//7
+    rest = np.mod(nTimes,7)
+    weekdayLoad = np.sum(np.reshape(RawCases[:weeks*7], [weeks, 7, s[1], s[2],s[3]]), (0,2,3,4))
+    weekdayLoad /= np.mean(weekdayLoad)
+    for week in range(weeks):
+        RawCases[week*7:(week+1)*7] /= weekdayLoad[:,np.newaxis,np.newaxis,np.newaxis] # attempt to correct for the uneven reporting
+    RawCases[weeks*7:] /= weekdayLoad[:rest,np.newaxis,np.newaxis,np.newaxis] # attempt to correct for the uneven reporting
+    return RawCases
+
+def binThuringia(data, df):
+    #import locale
+    #locale.setlocale(locale.LC_ALL, 'de_DE')
+    whichDate = 'Erkrankungsbeginn'
+    # data = data.sort_values(whichDate)
+    if '"AbsonderungEnde"' in data.keys():
+        AbsonderungEnde = '"AbsonderungEnde"'
+    else:
+        AbsonderungEnde = '"AbsonderungBis"'
+    data['AbsonderungEnde'] = pd.to_datetime(data[AbsonderungEnde].str.replace('"', '').str[:10], dayfirst=True)
+    day1 = np.min(data[whichDate])
+    dayLast1 = np.max(data[whichDate] - day1)
+    dayLast2 = np.max(data['VerstorbenDatum'] - day1)
+    dayLast3 = np.max(data['AbsonderungEnde'] - day1)
+    dayLast = np.max([dayLast1, dayLast2, dayLast3])
+    numDays = dayLast.days + 1
+    minAge = np.min(data[data['AlterBerechnet'] > 0]['AlterBerechnet'])
+    maxAge = np.max(data[data['AlterBerechnet'] > 0]['AlterBerechnet'])
+    numAge = maxAge + 1
+    labelsLK, levelsLK = data['MeldeLandkreis'].factorize()
+    data['LandkreisID'] = labelsLK
+    minLK = np.min(data['LandkreisID'])
+    maxLK = np.max(data['LandkreisID'])
+    numLK = maxLK + 1
+    labels, levelsGe = data['Geschlecht'].factorize()
+    data['GeschlechtID'] = labels
+    minGe = np.min(data['GeschlechtID'])
+    maxGe = np.max(data['GeschlechtID'])
+    numGender = maxGe + 1
+    Cases = np.zeros([numDays, numLK, numAge, numGender])
+    Hospitalized = np.zeros([numDays, numLK, numAge, numGender])
+    Cured = np.zeros([numDays, numLK, numAge, numGender])
+    Dead = np.zeros([numDays, numLK, numAge, numGender])
+    # data = data.set_index('InterneRef') # to make it unique
+    for index, row in data.iterrows():
+        myLK = int(row['LandkreisID'])
+        myday = (row[whichDate] - day1).days
+        if myday is np.nan:
+            myday = (row['Meldedatum']-day1).days
+        myAge = row['AlterBerechnet']
+        myGender = row['GeschlechtID']
+        if myAge < 1:
+            print('unknown age.' + str(myAge)+'... skipping ...')
+            continue
+        Cases[myday, myLK, myAge, myGender] += 1.0
+        myCuredDay = (row['AbsonderungEnde'] - day1).days
+        if myCuredDay is not np.nan:
+            Cured[myCuredDay, myLK, myAge, myGender] += 1
+        if row['HospitalisierungStatus'] == "Ja":
+            Hospitalized[myday, myLK, myAge, myGender] += 1
+        myDeadDay = (row['VerstorbenDatum'] - day1).days
+        if myDeadDay is not np.nan:
+            Dead[myDeadDay, myLK, myAge, myGender] += 1
+    Dates = pd.date_range(start = day1, periods=numDays).map(lambda x: x.strftime('%d.%m.%Y')).to_list()
+
+    df = df.set_index('Kreisfreie Stadt\nKreis / Landkreis')
+    Area = np.zeros(numLK)
+    PopW = np.zeros(numLK)
+    PopM = np.zeros(numLK)
+    for lk, level in zip(np.arange(numLK), levelsLK):
+        if level[:3] == 'LK ':
+            level = level[3:]
+        elif level[:3] == 'SK ':
+            level = level[3:]+', Stadt'
+        mySuppl = df.loc[level]
+        Area[lk] = mySuppl['Flaeche in km2']
+        PopW[lk] = mySuppl['Bev. W']
+        PopM[lk] = mySuppl['Bev. M']
+
+    Gender = levelsGe
+    Ages = np.arange(numAge)
+    measured = {'Cases': Cases, 'Hospitalized': Hospitalized, 'Dead': Dead, 'Cured': Cured, 'LKs': levelsLK, 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages, 'PopM': PopM, 'PopW':PopW, 'Area': Area}
+    return measured
 
 def cumulate(rki_data, df):
     # rki_data.keys()  # IdBundesland', 'Bundesland', 'Landkreis', 'Altersgruppe', 'Geschlecht',
     #        'AnzahlFall', 'AnzahlTodesfall', 'ObjectId', 'Meldedatum', 'IdLandkreis'
     # TotalCases = 0;
-    whichDate = 'Refdatum'  # 'Meldedatum'
+    # whichDate = 'Refdatum'  # 'Meldedatum'
+    whichDate = 'Meldedatum' # It may be useful to stick to the "Meldedatum", since Refdatum is a mix anyway.
+    # Furthermore: Redatum has a missing data problem near the end of the reporting period, so it always goes down!
     rki_data = rki_data.sort_values(whichDate)
     day1 = toDay(np.min(rki_data[whichDate]))
     dayLast = toDay(np.max(rki_data[whichDate]))
@@ -966,7 +1065,7 @@ class Model:
         else:
             self.rawVar[varname].assign(self.toRawVar[varname](self.Var[varname]() * relval))
 
-    def addRate(self, fromState, toState, rate, queueSrc=None, queueDst=None, name=None, hasTime=False, hoSumDims=None):  # S ==> I[0]
+    def addRate(self, fromState, toState, rate, queueSrc=None, queueDst=None, name=None, hasTime=False, hoSumDims=None, resultTransfer=None):  # S ==> I[0]
         if queueSrc is not None:
             ax = self.QueueStates[fromState]
             if queueSrc != ax.name and queueSrc != "total":
@@ -977,7 +1076,8 @@ class Model:
                 raise ValueError('The destination state ' + toState + ' does not have an axis named ' + queueDst + ', but it was given as queueDst.')
         if hoSumDims is not None:
             hoSumDims = [- self.Axes[d].curAxis for d in hoSumDims]
-        self.Rates.append([fromState, toState, rate, queueSrc, queueDst, name, hasTime, hoSumDims])
+
+        self.Rates.append([fromState, toState, rate, queueSrc, queueDst, name, hasTime, hoSumDims, resultTransfer])
 
     def findString(self, name, State=None):
         if State is None:
@@ -993,11 +1093,30 @@ class Model:
         else:
             ValueError('findString: Value ' + name + ' not found in Vars, States or Results')
 
+    def reduceToResultByName(self, transferred, resultTransfer):
+        Results = {}
+        if isinstance(resultTransfer, list) or isinstance(resultTransfer, tuple):
+            resultTransferName = resultTransfer[0]
+            resultT = tf.reduce_sum(transferred, self.findAxesDims(resultTransfer[1:]), keepdims=True)
+        else:
+            resultTransferName = resultTransfer
+            resultT = transferred
+
+        if resultTransferName in Results:
+            if resultT.shape == Results[resultTransferName].shape:
+                Results[resultTransferName] = Results[resultTransferName] + resultT
+            else:
+                raise ValueError('Shape not the same in resultTransfer ' + resultTransferName + ' from:' + fromName + ' to ' + toName)
+        else:
+            Results[resultTransferName] = resultT
+        return Results
+
     def applyRates(self, State, time):
         toQueue = {}  # stores the items to enter into the destination object
+        Results = {}
         # insert here the result variables
         OrigStates = State.copy()  # copies the dictionary but NOT the variables in it
-        for fromName, toName, rate, queueSrc, queueDst, name, hasTime, hoSumDims in self.Rates:
+        for fromName, toName, rate, queueSrc, queueDst, name, hasTime, hoSumDims, resultTransfer in self.Rates:
             if isinstance(rate, str):
                 rate = self.findString(rate)
             higherOrder = None
@@ -1029,6 +1148,20 @@ class Model:
                     else:
                         hoSum = tf.reduce_sum(OrigStates[hState], hoSumDims, keepdims=True)
                     transferred = transferred * hoSum  # apply higher order rates
+            if resultTransfer is not None:
+                if isinstance(resultTransfer, list) or isinstance(resultTransfer, tuple):
+                    if isinstance(resultTransfer[0], list) or isinstance(resultTransfer[0], tuple):
+                        for rT in resultTransfer:
+                            Res = self.reduceToResultByName(transferred, rT)
+                            Results = addDicts(Results, Res)
+                            # State = addDicts(State, Res)
+                    else:
+                        Res = self.reduceToResultByName(transferred, resultTransfer)
+                        Results = addDicts(Results, Res)
+                        # State = addDicts(State, Res)
+                else:
+                    Results = addDicts(Results, {resultTransfer: transferred})
+                    # State = addDicts(State, {resultTransfer: transferred})
             try:
                 toState = OrigStates[toName]
             except KeyError:
@@ -1058,7 +1191,7 @@ class Model:
             else:
                 pass  # this dequeing is automatically removed
         self.advanceQueues(State, toQueue)
-        return State
+        return State, Results
 
     def ReduceByShape(self, State, Transfer):
         factor = np.prod(np.array(Transfer.shape) / np.array(State.shape))
@@ -1083,19 +1216,30 @@ class Model:
             # the line below advances the queue
             State[queueN] = tf.concat((dst, subSlice(dstState, -axnum, None, -1)), axis=-axnum)
 
-    def recordResults(self, State):
+    def recordResults(self, State, Results):
         # record all States
         for vName, val in State.items():
+            # if vName in self.State:
             if vName not in self.Progression:
                 self.Progression[vName] = [val]
             else:
                 self.Progression[vName].append(val)
+            # else: # this is a Result item, which may or may not be used in the calculations below
+            #     pass
+                # raise ValueError('detected a State, which is not in States.')
+
+        for resName, res in Results.items():
+            if resName not in self.ResultVals:
+                self.ResultVals[resName] = [res]
+            else:
+                self.ResultVals[resName].append(res)
+
         # now record all calculated result values
         for resName, calc in self.ResultCalculator.items():
             res = calc(State)
-            if len(res.shape) == self.maxAxes:
-                sqax = list(range(self.maxAxes - self.curAxis + 1))
-                res = tf.squeeze(res, sqax)
+            # if len(res.shape) == self.maxAxes:
+                # sqax = list(range(self.maxAxes - self.curAxis + 1))
+                # res = tf.squeeze(res, sqax)
             if resName not in self.ResultVals:
                 self.ResultVals[resName] = [res]
             else:
@@ -1131,13 +1275,13 @@ class Model:
         State = self.checkDims(State)
         self.ResultVals = {}
         self.Progression = {}
-        self.recordResults(State)
         for t in range(Tmax):
             if verbose:
                 print('tracing time step ' + str(t), end='\r')
                 tf.print('tracing time step ' + str(t), end='\r')
-            State = self.applyRates(State, t)
-            self.recordResults(State)
+            newState, Results = self.applyRates(State, t)
+            self.recordResults(State, Results)
+            State = newState
         print()
         self.cleanupResults()
         print(" .. done\n")
@@ -1164,7 +1308,12 @@ class Model:
         Loss = None
         for predictionName, measured in dictToFit.items():
             predicted = self.ResultVals[predictionName]
-            predicted = reduceSumTo(predicted, measured)
+            try:
+                predicted = reduceSumTo(predicted, measured)
+            except ValueError:
+                print('Predicted shape: ' + str(np.array(predicted.shape)))
+                print('Measured shape: ' + str(np.array(measured.shape)))
+                raise ValueError('Predicted and measured data have different shape. Try introducing np.newaxis into measured data.')
             self.ResultVals[predictionName] = predicted  # .numpy()
             myFitEnd = min(measured.shape[0], predicted.shape[0], FitEnd)
             if "noiseModel" in oparam:
@@ -1247,9 +1396,9 @@ class Model:
         if "learning_rate" not in oparam:
             oparam["learning_rate"] = None
 
+        self.Measurements['measured'] = {}
         for predictionName, measured in data_dict.items():
             data_dict[predictionName] = tf.constant(measured, CalcFloatStr)
-            self.Measurements['measured'] = {}
             self.Measurements['measured'][predictionName] = data_dict[predictionName]  # save as measurement for plot
 
         loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
@@ -1309,6 +1458,14 @@ class Model:
                 # d = -d
             raise ValueError("Axis not found.")
 
+    def findAxesDims(self, listOfAxesNames):
+        """
+            finds a list of dimension positions from a list of Axis names
+        """
+        listOfAxes = list(listOfAxesNames)
+        return [- self.findAxis(d).curAxis for d in listOfAxesNames]
+
+
     def selectDims(self, toPlot, dims=None, includeZero=False):
         """
             selects the dimensions to plot and returns a list of labels
@@ -1340,12 +1497,17 @@ class Model:
             toPlot = np.sum(toPlot, tuple(rd))
         return toPlot, labels
 
-    def showResults(self, title='Results', xlabel='time step', xlim=None, ylabel='probability', dims=None, legendPlacement='upper left'):
+    def showDates(self, Dates, offsetDay = 0):          # being sunday
+        plt.xticks(range(offsetDay, len(Dates), 7), [date for date in Dates[offsetDay:-1:7]], rotation=70)
+        # plt.xlim(45, len(Dates))
+        plt.tight_layout()
+
+    def showResults(self, title='Results', xlabel='time step', xlim=None, ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0):
         # Plot results
         plt.figure(title)
         plt.title(title)
         legend = []
-        styles = ['.', '-.', '-', ':', '--']
+        styles = ['.', '*','-', ':', '--','-.']
         n = 0
         # for resN, dict in self.Simulations.items():
         #     style = styles[n]
@@ -1357,6 +1519,7 @@ class Model:
         for resN, dict in self.Measurements.items():
             for dictN, toPlot in dict.items():
                 toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
+                toPlot = np.squeeze(toPlot)
                 plt.plot(toPlot, styles[n])
                 if toPlot.ndim > 1:
                     for d in range(toPlot.shape[1]):
@@ -1367,14 +1530,17 @@ class Model:
             n += 1
         for dictN, toPlot in self.FitResultVals.items():
             toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
+            toPlot = np.squeeze(toPlot)
             plt.plot(toPlot, styles[n])
             if toPlot.ndim > 1:
                 for d in range(toPlot.shape[1]):
                     legend.append("Fit_" + dictN + "_" + labels[0][d])
-        else:
-            legend.append("Fit_" + "_" + dictN)
+            else:
+                legend.append("Fit_" + "_" + dictN)
         plt.legend(legend, loc=legendPlacement)
-        if xlabel is not None:
+        if Dates is not None:
+            self.showDates(Dates,offsetDay)
+        elif xlabel is not None:
             plt.xlabel(xlabel)
         if ylabel is not None:
             plt.ylabel(ylabel)
@@ -1389,7 +1555,7 @@ class Model:
             sumStates = sumStates + np.sum(state.numpy(), axis=sumcoords)
         return sumStates
 
-    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, 1], MinusOne=[], legendPlacement='upper left'):
+    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, 1], MinusOne=[], legendPlacement='upper left', Dates = None, offsetDay=0):
 
         # Plot the state population
         plt.figure(10)
@@ -1423,7 +1589,7 @@ class Model:
                         plt.imshow(toPlot2, aspect="auto")
                         #plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
                         plt.xlabel(dims2d[1])
-                        plt.xticks(range(toPlot2.shape[1]), labels[1], rotation='vertical')
+                        plt.xticks(range(toPlot2.shape[1]), labels[1], rotation=70)
                         plt.colorbar()
                     toPlot, labels = self.selectDims(toPlot, dims=dims)
                     if varN in MinusOne:
@@ -1434,12 +1600,14 @@ class Model:
                 plt.plot(np.squeeze(toPlot))
                 legend.append(myLegend)
         plt.legend(legend, loc=legendPlacement)
-        if xlabel is not None:
+        if Dates is not None:
+            self.showDates(Dates,offsetDay)
+        elif xlabel is not None:
             plt.xlabel(xlabel)
         if ylabel is not None:
             plt.ylabel(ylabel)
 
-    def compareFit(self, maxPrintSize=10, dims=None, legendPlacement='upper left'):
+    def compareFit(self, maxPrintSize=10, dims=None, legendPlacement='upper left', Dates = None, offsetDay=0):
         for varN, orig in self.Original.items():
             fit = totensor(removeCallable(self.Var[varN])).numpy()
             if varN not in self.Distorted:
@@ -1457,6 +1625,8 @@ class Model:
                 fit, labelsF = self.selectDims(fit, dims=dims)
                 plt.plot(fit)
                 plt.legend(["distorted", "original", "fit"], loc=legendPlacement)
+                if Dates is not None:
+                    self.showDates(Dates,offsetDay)
 
 
 # --------- Stuff concerning loading data
