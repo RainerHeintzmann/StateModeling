@@ -648,10 +648,30 @@ def binThuringia(data, df):
         Area[lk] = mySuppl['Flaeche in km2']
         PopW[lk] = mySuppl['Bev. W']
         PopM[lk] = mySuppl['Bev. M']
-
+    if True:
+        # now adapt the age groups to the RKI-data:
+        Ages = ('0-4','5-14', '15-34', '35-59', '60-79', '> 80')
+        AgeGroupStart = (5,14,34,59,79, None)
+        C=[];D=[];Cu=[];H=[]
+        AgeStart=0
+        for AgeEnd in AgeGroupStart:
+            C.append(np.sum(Cases[:,:,AgeStart:AgeEnd,:],-2))
+            D.append(np.sum(Dead[:,:,AgeStart:AgeEnd,:],-2))
+            Cu.append(np.sum(Cured[:,:,AgeStart:AgeEnd,:],-2))
+            H.append(np.sum(Hospitalized[:,:,AgeStart:AgeEnd,:],-2))
+            AgeStart = AgeEnd
+        Cases = np.stack(C,-2);Dead = np.stack(D,-2);Cured = np.stack(Cu,-2); Hospitalized = np.stack(H,-2)
+    else:
+        Ages = np.arange(numAge)
     Gender = levelsGe
-    Ages = np.arange(numAge)
-    measured = {'Cases': Cases, 'Hospitalized': Hospitalized, 'Dead': Dead, 'Cured': Cured, 'LKs': levelsLK, 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages, 'PopM': PopM, 'PopW':PopW, 'Area': Area}
+    CumulCases = np.cumsum(Cases,0)
+    CumulDead = np.cumsum(Dead,0)
+    CumulHospitalized = np.cumsum(Hospitalized,0)
+
+    measured = {'Cases': Cases, 'Hospitalized': Hospitalized, 'Dead': Dead, 'Cured': Cured,
+                'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages,
+                'PopM': PopM, 'PopW':PopW, 'Area': Area, 'CumulCases': CumulCases,
+                'CumulDead': CumulDead,'CumulHospitalized': CumulHospitalized}
     return measured
 
 def cumulate(rki_data, df):
@@ -923,7 +943,7 @@ def reduceSumTo(State, dst):
 #         self.Axes = {}
 
 class Model:
-    def __init__(self, name='stateModel', maxAxes=5, rand_seed=1234567):
+    def __init__(self, name='stateModel', maxAxes=4, rand_seed=1234567):
         self.__version__ = 1.01
         self.name = name
         self.maxAxes = maxAxes
@@ -957,6 +977,10 @@ class Model:
 
     def initGaussianT0(self, t0, t, sig=2.0):
         initVals = tf.exp(-(t - t0) ** 2. / (2 * (sig ** 2.)))
+        return initVals
+
+    def initDeltaT0(self, t0, t, sig=2.0):
+        initVals = ((t - t0) == 0.0)*1.0
         return initVals
 
     def initSigmoidDropT0(self, t0, t, sig, dropTo=0.0):
@@ -1311,6 +1335,7 @@ class Model:
             try:
                 predicted = reduceSumTo(predicted, measured)
             except ValueError:
+                print('Predicted: ' + predictionName)
                 print('Predicted shape: ' + str(np.array(predicted.shape)))
                 print('Measured shape: ' + str(np.array(measured.shape)))
                 raise ValueError('Predicted and measured data have different shape. Try introducing np.newaxis into measured data.')
@@ -1502,12 +1527,15 @@ class Model:
         # plt.xlim(45, len(Dates))
         plt.tight_layout()
 
-    def showResults(self, title='Results', xlabel='time step', xlim=None, ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0):
+    def showResults(self, title='Results', xlabel='time step', xlim=None, ylim=None, ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0, logY=True, styles = ['.', '-', ':', '--','-.','*']):
+        if logY:
+            plot = plt.semilogy
+        else:
+            plot = plt.plot
         # Plot results
         plt.figure(title)
         plt.title(title)
         legend = []
-        styles = ['.', '*','-', ':', '--','-.']
         n = 0
         # for resN, dict in self.Simulations.items():
         #     style = styles[n]
@@ -1520,7 +1548,7 @@ class Model:
             for dictN, toPlot in dict.items():
                 toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
                 toPlot = np.squeeze(toPlot)
-                plt.plot(toPlot, styles[n])
+                plot(toPlot, styles[n])
                 if toPlot.ndim > 1:
                     for d in range(toPlot.shape[1]):
                         legend.append(resN + "_" + dictN + "_" + labels[0][d])
@@ -1531,7 +1559,7 @@ class Model:
         for dictN, toPlot in self.FitResultVals.items():
             toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
             toPlot = np.squeeze(toPlot)
-            plt.plot(toPlot, styles[n])
+            plot(toPlot, styles[n])
             if toPlot.ndim > 1:
                 for d in range(toPlot.shape[1]):
                     legend.append("Fit_" + dictN + "_" + labels[0][d])
@@ -1546,6 +1574,8 @@ class Model:
             plt.ylabel(ylabel)
         if xlim is not None:
             plt.xlim(xlim[0],xlim[1])
+        if ylim is not None:
+            plt.xlim(ylim[0],ylim[1])
 
     def sumOfStates(self, Progression, sumcoords=None):
         sumStates = 0
@@ -1555,7 +1585,11 @@ class Model:
             sumStates = sumStates + np.sum(state.numpy(), axis=sumcoords)
         return sumStates
 
-    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, 1], MinusOne=[], legendPlacement='upper left', Dates = None, offsetDay=0):
+    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, 1], MinusOne=[], legendPlacement='upper left', Dates = None, offsetDay=0, logY=False):
+        if logY:
+            plot = plt.semilogy
+        else:
+            plot = plt.plot
 
         # Plot the state population
         plt.figure(10)
@@ -1570,7 +1604,7 @@ class Model:
         initState = sumStates[0]
         meanStates = np.mean(sumStates)
         maxDiff = np.max(abs(sumStates - initState))
-        print("Sum of states deviates by: " + str(maxDiff) + ", from the starting state. relative: " + str(maxDiff / initState))
+        print("Sum of states deviates by: " + str(maxDiff) + ", from the starting state:" + str(initState)+". relative: " + str(maxDiff / initState))
         N = 1
         for varN in Progression:
             if varN not in exclude:
@@ -1597,7 +1631,7 @@ class Model:
                         myLegend = myLegend + "-1"
                     myLegend = myLegend + " (summed)"
                 plt.figure(10)
-                plt.plot(np.squeeze(toPlot))
+                plot(np.squeeze(toPlot))
                 legend.append(myLegend)
         plt.legend(legend, loc=legendPlacement)
         if Dates is not None:
