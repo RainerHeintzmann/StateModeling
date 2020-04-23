@@ -57,10 +57,18 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
 
     if ReduceDistricts == 'Thuringia':
         ReduceDistricts = (352, 342, 167, 332, 399, 278, 403, 82, 230, 55, 251, 102, 221, 122, 223, 110, 263, 80, 240, 330, 3, 276)
+    elif ReduceDistricts == 'Model Regions':
+        ReduceDistricts = ['SK Gera', 'SK Jena', 'LK Greiz', 'SK Suhl', 'LK Nordhausen']
+    elif isinstance(ReduceDistricts, str):
+        ValueError('Unknown String for reduce districts: ' + ReduceDistricts + '. Use a list or tuple if this is a single district.')
+
     if isinstance(ReduceDistricts,list) or isinstance(ReduceDistricts,tuple) and isinstance(ReduceDistricts[0], str):
         allDist = []
         for name in ReduceDistricts:
-            allDist.append(AllMeasured['LKs'].index(name))
+            if name in AllMeasured['LKs']:
+                allDist.append(AllMeasured['LKs'].index(name))
+            else:
+                raise ValueError('District name '+name+' is not present in data')
         ReduceDistricts = allDist
 
     if ReduceDistricts is None:
@@ -84,7 +92,7 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
         sumDims  = sumDims+(-2,)
     if SumDistricts:
         AllMeasured['IDs'] = np.array(0)
-        AllMeasured['LKs'] = [Region]
+        AllMeasured['LKs'] = [AllMeasured['Region']]
         sumDims  = sumDims+(-3,)
 
     AllMeasured['CumulCases'] = np.sum(AllMeasured['CumulCases'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)

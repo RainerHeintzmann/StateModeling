@@ -199,7 +199,7 @@ def optimizer(loss, otype='L-BFGS-B', NIter=300, oparam={'gtol': 0, 'learning_ra
 def LBFGSWrapper(func, init_params, NIter):
     optim_results = tfp.optimizer.lbfgs_minimize(value_and_gradients_function=func,
                                                  initial_position=init_params,
-                                                 tolerance=1e-6,
+                                                 tolerance=1e-7,
                                                  num_correction_pairs=5,
                                                  max_iterations=NIter)
     # f_relative_tolerance = 1e-6
@@ -1055,8 +1055,8 @@ class Model:
                 if name in self.ResultVals:
                     raise ValueError("Variable " + name + " is already defined as a Result.")
 
-                toVarFkt = lambda avar: avar
-                toRawFkt = lambda avar: avar
+                toVarFkt = lambda avar: totensor(avar)
+                toRawFkt = lambda avar: totensor(avar)
                 if normalize is not None:
                     toRawFkt2 = lambda avar: invNormalize(toRawFkt(avar), normalize, initVal);
                     toVarFkt2 = lambda avar: toVarFkt(doNormalize(avar, normalize, initVal))
@@ -1527,7 +1527,7 @@ class Model:
         # plt.xlim(45, len(Dates))
         plt.tight_layout()
 
-    def showResults(self, title='Results', xlabel='time step', xlim=None, ylim=None, ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0, logY=True, styles = ['.', '-', ':', '--','-.','*']):
+    def showResults(self, title='Results', xlabel='time step', Scale=False, xlim=None, ylim=None, ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0, logY=True, styles = ['.', '-', ':', '--','-.','*']):
         if logY:
             plot = plt.semilogy
         else:
@@ -1548,6 +1548,8 @@ class Model:
             for dictN, toPlot in dict.items():
                 toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
                 toPlot = np.squeeze(toPlot)
+                if Scale is not None:
+                    toPlot *= Scale
                 plot(toPlot, styles[n])
                 if toPlot.ndim > 1:
                     for d in range(toPlot.shape[1]):
@@ -1559,6 +1561,8 @@ class Model:
         for dictN, toPlot in self.FitResultVals.items():
             toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
             toPlot = np.squeeze(toPlot)
+            if Scale is not None:
+                toPlot *= Scale
             plot(toPlot, styles[n])
             if toPlot.ndim > 1:
                 for d in range(toPlot.shape[1]):
@@ -1626,10 +1630,10 @@ class Model:
                         plt.xticks(range(toPlot2.shape[1]), labels[1], rotation=70)
                         plt.colorbar()
                     toPlot, labels = self.selectDims(toPlot, dims=dims)
-                    if varN in MinusOne:
-                        toPlot = toPlot - 1.0
-                        myLegend = myLegend + "-1"
                     myLegend = myLegend + " (summed)"
+                if varN in MinusOne:
+                    toPlot = toPlot - 1.0
+                    myLegend = myLegend + "-1"
                 plt.figure(10)
                 plot(np.squeeze(toPlot))
                 legend.append(myLegend)
@@ -1641,15 +1645,23 @@ class Model:
         if ylabel is not None:
             plt.ylabel(ylabel)
 
-    def compareFit(self, maxPrintSize=10, dims=None, legendPlacement='upper left', Dates = None, offsetDay=0):
+    def compareFit(self, maxPrintSize=10, dims=None, fittedVars=None, legendPlacement='upper left', Dates = None, offsetDay=0):
         for varN, orig in self.Original.items():
-            fit = totensor(removeCallable(self.Var[varN])).numpy()
+            fit = np.squeeze(totensor(removeCallable(self.Var[varN])).numpy())
+            orig = np.squeeze(self.toVar[varN](orig).numpy()) # convert from rawVar to Var
             if varN not in self.Distorted:
-                continue
-            dist = self.Distorted[varN]
-            orig = self.toVar[varN](orig).numpy() # convert from rawVar to Var
+                dist = orig
+            else:
+                dist = self.Distorted[varN]
             if isNumber(fit) or np.prod(fit.shape) < maxPrintSize:
-                print("Comparison " + varN + ", Distorted:" + str(dist) + ", Original: " + str(orig) + ", fit: " + str(fit) + ", rel. error:" + str(np.max((fit - orig) / orig)))
+                if fittedVars is not None:
+                    if varN in fittedVars:
+                        print("\033[1;32;49m")
+                    else:
+                        print("\033[1;31;49m")
+                print("Comparison " + varN + ", Distorted:" + str(dist) + ", Original: " + str(orig) + ", fit: " + str(fit) + ", rel. differenz:" + str(
+                    np.max((fit - orig) / orig)))
+                print("\033[0;37;49m")
             else:
                 plt.figure("Comparison " + varN)
                 dist, labelsD = self.selectDims(dist, dims=dims)

@@ -11,25 +11,27 @@ def CoronaModel(AllMeasured):
     M.addAxis("Disease Progression", entries=28, queue=True)
 
     # modeling infection:
-    r0Init = 2.5 * np.ones(M.Axes['Age'].shape, stm.CalcFloatStr)
+    r0Init = 9.2 * np.ones(M.Axes['Age'].shape, stm.CalcFloatStr)
     it0Init = 3.5 # day in 'Disease Progression' of most probably infecting someone else
     sigmaI = 3.0 # spread in 'Disease Progression' of most probably infecting someone else
 
     # model the general awareness effect:
     aT0Init = AllMeasured['Dates'].index('05.03.2020')+0.0 # Awareness effect mean day of decreasing R
-    aBaseInit = 0.5 # relative drop down of infectiveness cause by awareness
+    aBaseInit = 0.14 # relative drop down to this value of infectiveness cause by awareness
     aSigma = 4.0 # spread for sigmoidal awareness curve
 
     # modelling the german soft-lock:
-    qInit = 0.2  # lockdown quarantine percentage
+    qInit = 0.0052  # lockdown quarantine percentage (has to be multiplied roughly by 3)
     sigmaQ = 1.5 # spread for soft-lock
     LockDown = AllMeasured['Dates'].index('23.03.2020')+0.0  # Time of German lockdown, Quelle: RKI bulletin
     unlock = AllMeasured['Dates'].index('20.04.2020')+0.0  # This is when retail changed! 79
-    dInit = 0.02 # detection rate for quarantine from population
+    relUnlock = 0.8
+    dInit = 0.13 # detection rate for quarantine from population
 
     # first infection
-    T0Init = AllMeasured['Dates'].index('03.03.2020')+0.2   # day of first infection in the district
-    I0Init = 5e-3 # Amount of first infection
+    # T0Init = AllMeasured['Dates'].index('03.03.2020')+0.2   # day of first infection in the district
+    T0Init = AllMeasured['Dates'].index('21.02.2020')+0.2   # day of first infection in the district
+    I0Init = 5e-9 # Amount of first infection  (1.0 would be 5e-7 )
 
     # hospitalization:
     hInit = 0.06 # rate of hospitalization
@@ -38,7 +40,7 @@ def CoronaModel(AllMeasured):
     ht0Init = 5.5 # day of 'Disease Progression' when hospitalization is most probable
     # intensive care
     hic = 0.05  # rate to be transferred to ICUs, should really be age dependent
-    rd = 0.05  # rate to die, should really be age dependent
+    rdInit = 0.05  # rate to die, should really be age dependent
 
     TPop = np.sum(AllMeasured['Population'])
     # susceptible
@@ -67,7 +69,8 @@ def CoronaModel(AllMeasured):
 
     # InitPupulDistrictOnly = np.sum(InitPopul,(-1,-2), keepdims=True)
     r0 = M.newVariables({'r0': r0Init}, forcePos=True)
-    M.addRate(('S', 'I'), 'I', lambda t: (r0()* awareness(t) * infectiveness) / AllMeasured['Population'],
+    RelPopulation = AllMeasured['Population'] / TPop
+    M.addRate(('S', 'I'), 'I', lambda t: (r0()* awareness(t) * infectiveness) / RelPopulation,
               queueDst="Disease Progression", hasTime=True, hoSumDims=['Age', 'Gender'])  # S ==> I[0]
     M.addRate('I', 'C', 1.0, queueSrc="Disease Progression")  # I --> C when through the queue
 
@@ -76,10 +79,10 @@ def CoronaModel(AllMeasured):
     M.newState(name='Sq', axesInit={"District": 0, "Age": 0, "Gender": 0})
     # infected, quarantined
     M.newState(name='Iq', axesInit={"Disease Progression": 0, "District": 0, "Age": 0, "Gender": 0})
-    q = M.newVariables({"q": qInit}, forcePos=True)  # quarantine ratio (of all ppl.) modeled as a Gaussian (see below)
+    q = M.newVariables({"q": qInit * np.ones(M.Axes['District'].shape, stm.CalcFloatStr)}, forcePos=True)  # quarantine ratio (of all ppl.) modeled as a Gaussian (see below)
     lockDownFct = lambda t: q() * M.initGaussianT0(LockDown, t, sigmaQ)
     M.addRate('S', 'Sq', lockDownFct, hasTime=True)
-    unlockFct = lambda t: M.initDeltaT0(unlock, t, sigmaQ)
+    unlockFct = lambda t: relUnlock * M.initDeltaT0(unlock, t, sigmaQ)
     M.addRate('I', 'Iq', lockDownFct, hasTime=True)  # S -q-> Sq
     M.addRate('Sq', 'S', unlockFct, hasTime=True)  # Sq --> S
     M.addRate('Iq', 'I', unlockFct, hasTime=True)  # Iq --> I
@@ -118,6 +121,7 @@ def CoronaModel(AllMeasured):
     M.addRate('H', 'HIC', hic)
     M.addRate('HIC', 'H', 1.0, queueSrc="Disease Progression")  # HIC[t] -> H[t] If intensive care was survived, start over in hospital
     # rate to die from intensive care:
+    rd = M.newVariables({'rd': rdInit}, forcePos=False)  # rate to die during ICU
     M.addRate('HIC', 'D', rd, resultTransfer=('deaths', 'Disease Progression'))
 
     # cumulative total detected (= measured) cases:

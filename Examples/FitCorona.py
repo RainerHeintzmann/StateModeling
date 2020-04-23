@@ -10,7 +10,10 @@ from Corona.LoadData import loadData, preprocessData
 from Corona.CoronaModel import CoronaModel, plotTotalCases
 
 AllMeasured = loadData(r"COVID-19 Linelist 2020_04_22.xlsx", useThuringia = True, pullData=False)
-AllMeasured = preprocessData(AllMeasured)
+# AllMeasured = preprocessData(AllMeasured)
+# AllMeasured = loadData(useThuringia = False, pullData=False)
+ExampleRegions = ['SK Jena', 'LK Greiz'] # 'SK Gera',
+AllMeasured = preprocessData(AllMeasured, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
 
 M = CoronaModel(AllMeasured)
 
@@ -24,7 +27,7 @@ Tmax = 120
 
 # M.toFit(['r0', 'hr', 'ht0', 'I0'])
 # M.toFit(['r0', 'I0'])
-M.toFit(['T0', 'r0', 'h', 'aT0', 'aBase', 'I0', 'd'])  # 'q',
+M.toFit(['r0', 'h', 'aT0', 'aBase', 'I0', 'd', 'rd', 'T0', 'q']) # 'q',
 # M.toFit(['r0'])
 
 # if Cases.shape[-1] > 1:
@@ -66,8 +69,10 @@ oparam['noiseModel'] = 'Gaussian'
 # tf.config.experimental_run_functions_eagerly(True)
 
 fittedVars, fittedRes = M.fit(FitDict, Tmax, otype=otype, oparam=oparam, NIter=NIter, verbose=True, lossScale=lossScale)
-YMax =np.max(np.sum(AllMeasured['Cases']) / sum(AllMeasured['Population']))
-M.showResults(title=AllMeasured['Region'], ylabel='occupancy', xlim=xlim, ylim = [1e-6,YMax], dims=("District"), Dates=AllMeasured['Dates'], legendPlacement='upper right')
+# YMax =np.max(np.sum(AllMeasured['Cases']) / sum(AllMeasured['Population']))
+# M.showResults(title=AllMeasured['Region'], ylabel='occupancy', xlim=xlim, ylim = [1e-6,YMax], dims=("District"), Dates=AllMeasured['Dates'], legendPlacement='upper right')
+M.showResults(title=AllMeasured['Region'], Scale=PopSum, ylabel='occupancy', xlim=xlim, dims=("District"), Dates=AllMeasured['Dates'], legendPlacement='upper right', styles=['.','-','--'])
+# plt.ylim(1e-7*PopSum,1e-3*PopSum)
 
 M.showStates(MinusOne=('S'), dims2d=None, Dates = AllMeasured['Dates'], legendPlacement='upper right')
 
@@ -76,14 +81,19 @@ if measured.shape[-2] > 1:
 
 # np.sum(measured[-1,:,:,:],(0,2))*PopSum / Pop  # detected per population
 
-print("mean(T0) = " + str(np.mean(fittedVars['T0'])))
-print("mean(r0) = " + str(np.mean(fittedVars['r0'])))
-print("h = " + str(fittedVars['h']))
-print("aT0 = " + str(fittedVars['aT0']))
-print("aBase = " + str(fittedVars['aBase']))
-print("d = " + str(fittedVars['d']))
-if 'q' in fittedVars:
-    print("q = " + str(fittedVars['q']))
+# if 'T0' in fittedVars:
+#     print("mean(T0) = " + str(np.mean(fittedVars['T0'])))
+# print("mean(r0) = " + str(np.mean(fittedVars['r0'])))
+# print("h = " + str(fittedVars['h']))
+# print("aT0 = " + str(fittedVars['aT0']))
+# print("aBase = " + str(fittedVars['aBase']))
+# print("d = " + str(fittedVars['d']))
+# if 'rd' in fittedVars:
+#     print("rd = " + str(fittedVars['rd']))
+# if 'q' in fittedVars:
+#     print("q = " + str(fittedVars['q']))
+
+M.compareFit(fittedVars=fittedVars)
 
 plotTotalCases(AllMeasured)
 
