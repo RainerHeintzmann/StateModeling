@@ -9,7 +9,7 @@ import tensorflow as tf
 from Corona.LoadData import loadData, preprocessData
 from Corona.CoronaModel import CoronaModel, plotTotalCases
 
-AllMeasured = loadData(r"COVID-19 Linelist 2020_04_22.xlsx", useThuringia = True, pullData=False)
+AllMeasured = loadData(r"COVID-19 Linelist 2020_04_23.xlsx", useThuringia = True, pullData=False)
 # AllMeasured = preprocessData(AllMeasured)
 # AllMeasured = loadData(useThuringia = False, pullData=False)
 ExampleRegions = ['SK Jena', 'LK Greiz'] # 'SK Gera',
@@ -33,7 +33,10 @@ M.toFit(['r0', 'h', 'aT0', 'aBase', 'I0', 'd', 'rd', 'T0', 'q']) # 'q',
 # if Cases.shape[-1] > 1:
 #     M.toFit.append()
 if AllMeasured['Cases'].shape[-2] > 1:
-    M.toFit.append(['Age Border', 'Age Sigma'])
+    M.appendToFit(['Age Border', 'Age Sigma'])
+
+g = M.getGUI()
+
 
 PopSum = np.sum(AllMeasured['Population'])
 measured = AllMeasured['Cases'][:,  np.newaxis, :, :, :] / PopSum
@@ -48,11 +51,12 @@ if "Hospitalized" in AllMeasured.keys():
 FitDict['deaths'] = measuredDead
 
 # SimDict = {'cases': None, 'cumul_cases': None, 'cumul_dead':None}
-if False:
+if True:
     simulated = M.simulate('simulated', FitDict, Tmax=Tmax)
-    M.showResults(ylabel='occupancy', Dates=AllMeasured['Dates'])
+    M.showResults(title=AllMeasured['Region'], Scale=PopSum, ylabel='occupancy', xlim=xlim, dims=("District"), Dates=AllMeasured['Dates'], legendPlacement='upper right', styles=['.','-','--'])
     M.showStates(MinusOne=('S'), dims2d=None, Dates = AllMeasured['Dates'])
 
+qqq
 if True:
     otype = "L-BFGS"
     lossScale = 1.0  # 1e4

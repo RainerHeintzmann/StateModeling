@@ -5,3 +5,6 @@ pip install --upgrade tensorflow
 pip install --upgrade tensorflow-probability
 pip install --upgrade matplotlib pandas python-dotenv xlrd
 # DateTime
+conda install -c conda-forge ipywidgets
+pip install mpld3
+pip install bokeh
