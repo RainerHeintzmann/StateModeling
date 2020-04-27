@@ -1561,7 +1561,7 @@ class Model:
         plt.tight_layout()
 
     def setPlotCumul(self, val):
-        self.plotCumul = val['value']
+        self.plotCumul = val['new']
 
     def plotB(self, Figure, x, toPlot, name, color=None, line_dash=None, withDots=False):
         # create a column data source for the plots to share
