@@ -11,7 +11,8 @@ true_I0 = 1200.0 / true_k
 M.newVariables({'k': true_k}, forcePos=True)  # transition rate
 I0 = M.newVariables({'I0': true_I0})  # transition rate
 M.addRate('S1', 'S0', 'k', resultTransfer='emission')  # S1 --> S0  first order decay leading to a single exponential decay
-M.addResult('detected', lambda State: I0() * State['emission'])  # ('I', 'S')
+
+M.addResult('detected', lambda State: I0() * M.Var['k']() * State['S1'])  # ('I', 'S')
 M.toFit(['k', 'I0'])
 # M.toFit(['k'])
 
@@ -30,6 +31,6 @@ else:
     otype = "adagrad"  # "adadelta" "SGD" "nesterov"  "adam"
 fittedVars, fittedRes = M.fit({'detected': measured}, Tmax, otype=otype, NIter=150, verbose=True)
 
-M.showResults(ylabel='Intensity')
+M.showResults(ylabel='Intensity', logY=False)
 M.showStates()
 M.compareFit()

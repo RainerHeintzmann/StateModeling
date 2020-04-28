@@ -1705,7 +1705,7 @@ class Model:
             for dictN, toPlot in dict.items():
                 toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
                 toPlot = np.squeeze(toPlot)
-                if Scale is not None:
+                if Scale is not None and Scale is not False:
                     toPlot *= Scale
                 plot(toPlot, styles[n % len(styles)])
                 if toPlot.ndim > 1:
@@ -1718,7 +1718,7 @@ class Model:
         for dictN, toPlot in self.FitResultVals.items():
             toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
             toPlot = np.squeeze(toPlot)
-            if Scale is not None:
+            if Scale is not None and Scale is not False:
                 toPlot *= Scale
             plot(toPlot, styles[n % len(styles)])
             if toPlot.ndim > 1:
@@ -1748,14 +1748,14 @@ class Model:
 
     def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, 1], MinusOne=[], legendPlacement='upper left', Dates = None,
                    offsetDay=0, logY=False, xlim=None, ylim=None, figsize=None):
-        if figsize is not None:
-            plt.figure(title, figsize=figsize)
-        else:
-            plt.figure(title)
         if logY:
             plot = plt.semilogy
         else:
             plot = plt.plot
+        if figsize is not None:
+            plt.figure(title, figsize=figsize)
+        else:
+            plt.figure(title)
         plt.title(title)
 
         # Plot the state population
@@ -1795,7 +1795,7 @@ class Model:
                 if varN in MinusOne:
                     toPlot = toPlot - 1.0
                     myLegend = myLegend + "-1"
-                plt.figure(10)
+                # plt.figure(10)
                 plot(np.squeeze(toPlot))
                 legend.append(myLegend)
         plt.legend(legend, loc=legendPlacement)
