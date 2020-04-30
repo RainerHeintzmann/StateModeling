@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 import os
 import requests
 from datetime import datetime, timedelta
+cumulPrefix = '_cumul_'  # this is used as a keyword to identify whether this plot was already plotted
 
 class DataLoader(object):
     def __init__(self):
@@ -1331,37 +1332,42 @@ class Model:
         from bokeh.plotting import Figure
         from bokeh.io.notebook import CommsHandle
         self.plotCumul = val['new']
-        newDict={}
         for fn, f in self.DataDict.items():
             print('looking for figures: ')
             print(f)
             if isinstance(f, Figure):
                 for r in f.renderers:
-                    r.visible = False # hides all the plots in the figure
+                    if r.name.startswith(cumulPrefix):
+                        r.visible = self.plotCumul # shows cumul plots according to settings
+                    else:
+                        r.visible = not self.plotCumul
                 print('cleared renderer of figure '+fn+' named: '+f.name)
-                newDict[fn] = f # keep the figure form being deleted
-            elif isinstance(f, CommsHandle) or isinstance(f,str):
-                newDict[fn] = f # handles to figures are also saved in this dict
-
-        self.DataDict = newDict # just keep the figures, but delete all the data
 
     def plotB(self, Figure, x, toPlot, name, color=None, line_dash=None, withDots=False, useBars=True):
         # create a column data source for the plots to share
         from bokeh.models import ColumnDataSource
 
+        myPrefix = '_'
         if self.plotCumul:
             toPlot = np.cumsum(toPlot, 0)
             useBars = False
+            myPrefix = cumulPrefix
             print('Cumul: set useBars to False')
 
         if isinstance(x,pd.core.indexes.datetimes.DatetimeIndex):
             msPerDay = 0.6 * 1000.0*60*60*24
         else:
             msPerDay = 0.6
-        if name not in self.DataDict:
+        if myPrefix + name not in self.DataDict:
             print('replotting: '+name)
-            source = ColumnDataSource(data=dict(x=x, y=toPlot))
-            self.DataDict[name] = source
+            self.DataDict[myPrefix + name] = 'was plotted'
+            if name not in self.DataDict:
+                source = ColumnDataSource(data=dict(x=x, y=toPlot))
+                self.DataDict[name] = source
+            else:
+                print('Updating y-data of: ' + name)
+                self.DataDict[name].data['y'] = toPlot
+                source = self.DataDict[name]
             if self.plotCumul:
                 mylegend = name+"_cumul"
             else:
