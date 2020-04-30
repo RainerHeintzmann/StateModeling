@@ -5,15 +5,17 @@
 import StateModeling as stm
 import numpy as np
 import matplotlib.pyplot as plt
-import tensorflow as tf
+# import tensorflow as tf
 from Corona.LoadData import loadData, preprocessData
-from Corona.CoronaModel import CoronaModel, plotTotalCases
+from Corona.CoronaModel import CoronaModel, plotTotalCases, plotRaw
 
-AllMeasured = loadData(r"COVID-19 Linelist 2020_04_23.xlsx", useThuringia = True, pullData=False)
+# data = loadData(r"COVID-19 Linelist 2020_04_23.xlsx", useThuringia = True, pullData=False)
+data = loadData(r"COVID-19 Linelist 2020_04_30.xlsx", useThuringia = True, pullData=False)
 # AllMeasured = preprocessData(AllMeasured)
 # AllMeasured = loadData(useThuringia = False, pullData=False)
 ExampleRegions = ['SK Jena', 'LK Greiz'] # 'SK Gera',
-AllMeasured = preprocessData(AllMeasured, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
+AllMeasured = preprocessData(data, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
+plotRaw(AllMeasured)
 
 M = CoronaModel(AllMeasured)
 
@@ -56,7 +58,6 @@ if True:
     M.showResults(title=AllMeasured['Region'], Scale=PopSum, ylabel='occupancy', xlim=xlim, dims=("District"), Dates=AllMeasured['Dates'], legendPlacement='upper right', styles=['.','-','--'])
     M.showStates(MinusOne=('S'), dims2d=None, Dates = AllMeasured['Dates'])
 
-qqq
 if True:
     otype = "L-BFGS"
     lossScale = 1.0  # 1e4
@@ -104,19 +105,3 @@ plotTotalCases(AllMeasured)
 if False:
     plt.figure("Awareness reduction")
     plt.plot(awareness(np.arange(0, 100)))
-
-    plt.figure("All_" + Region)
-    plt.semilogy(np.sum(RawCumulCases, (1, 2, 3)), 'g')
-    plt.semilogy(np.sum(RawCumulDead, (1, 2, 3)), 'm')
-    plt.semilogy(np.sum(RawCases, (1, 2, 3)), 'g.-')
-    plt.semilogy(np.sum(RawDead, (1, 2, 3)), 'm.-')
-    plt.semilogy(np.sum(RawCured, (1, 2, 3)), 'b')
-    if "Hospitalized" in AllMeasured.keys():
-        plt.semilogy(np.sum(Hospitalized, (1, 2, 3)))
-        plt.legend(['CumulCases', 'CumulDead', 'Cases', 'Deaths', 'Cured', 'Hospitalized'])
-    else:
-        plt.legend(['CumulCases', 'CumulDead', 'Cases', 'Deaths', 'Cured'])
-    offsetDay = 0  # being sunday
-    plt.xticks(range(offsetDay, len(Dates), 7), [date for date in Dates[offsetDay:-1:7]], rotation="vertical")
-    # plt.xlim(45, len(Dates))
-    plt.tight_layout()

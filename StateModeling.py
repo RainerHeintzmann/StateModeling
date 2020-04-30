@@ -1,8 +1,8 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-from tensorflow.core.protobuf import config_pb2
+# from tensorflow.core.protobuf import config_pb2
 import numpy as np
-import os
+# import os
 # from fit_model import load_data
 import matplotlib.pyplot as plt
 import time
@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 import os
 import requests
 from datetime import datetime, timedelta
-
 
 class DataLoader(object):
     def __init__(self):
@@ -415,10 +414,9 @@ def totensor(img):
             img = tf.constant(img, defaultTFDataType)
     return img
 
-
 def doCheckScaling(fwd, meas):
-    sF = ev(tf.reduce_mean(input_tensor=totensor(fwd)))
-    sM = ev(tf.reduce_mean(input_tensor=totensor(meas)))
+    sF = tf.reduce_mean(input_tensor=totensor(fwd)).numpy()
+    sM = tf.reduce_mean(input_tensor=totensor(meas)).numpy()
     R = sM / sF
     if abs(R) < 0.7 or abs(R) > 1.3:
         print("Mean of measured data: " + str(sM) + ", Mean of forward model with initialization: " + str(sF) + " Ratio: " + str(R))
@@ -538,13 +536,11 @@ def retrieveData():
     print('Last Day loaded: ' + str(pd.to_datetime(np.max(rki_data.Meldedatum), unit='ms')))
     return rki_data
 
-
 def deltas(WhenHowMuch, SimTimes):
     res = np.zeros(SimTimes)
     for w, h in WhenHowMuch:
         res[w] = h;
     return res
-
 
 def showResiduum(meas, fit):
     res1 = np.mean(meas - fit, (1, 2))
@@ -568,238 +564,6 @@ def getLabels(rki_data, label):
         labels = ['BRD']
     return labels
 
-def correctWeekdayEffect(RawCases):
-    s = RawCases.shape
-    nTimes = s[0]
-    weeks = nTimes//7
-    rest = np.mod(nTimes,7)
-    weekdayLoad = np.sum(np.reshape(RawCases[:weeks*7], [weeks, 7, s[1], s[2],s[3]]), (0,2,3,4))
-    weekdayLoad /= np.mean(weekdayLoad)
-    for week in range(weeks):
-        RawCases[week*7:(week+1)*7] /= weekdayLoad[:,np.newaxis,np.newaxis,np.newaxis] # attempt to correct for the uneven reporting
-    RawCases[weeks*7:] /= weekdayLoad[:rest,np.newaxis,np.newaxis,np.newaxis] # attempt to correct for the uneven reporting
-    return RawCases
-
-def stripQuotesFromAxes(data):
-    new_keys = map(lambda ax: ax.strip('"'),data.keys())
-    for ax, newax in zip(data.keys(), new_keys):
-        data.rename(columns={ax: newax}, inplace=True)
-
-def binThuringia(data, df):
-    #import locale
-    #locale.setlocale(locale.LC_ALL, 'de_DE')
-    whichDate = 'Erkrankungsbeginn'
-    # data = data.sort_values(whichDate)
-    stripQuotesFromAxes(data)
-    if 'AbsonderungEnde' in data.keys():
-        AbsonderungEnde = 'AbsonderungEnde'
-    else:
-        AbsonderungEnde = 'AbsonderungBis'
-    data['AbsonderungEnde'] = pd.to_datetime(data[AbsonderungEnde].str.replace('"', '').str[:10], dayfirst=True)
-    day1 = np.min(data[whichDate])
-    dayLast1 = np.max(data[whichDate] - day1)
-    dayLast2 = np.max(data['VerstorbenDatum'] - day1)
-    dayLast3 = np.max(data['AbsonderungEnde'] - day1)
-    dayLast = np.max([dayLast1, dayLast2, dayLast3])
-    numDays = dayLast.days + 1
-    minAge = np.min(data[data['AlterBerechnet'] > 0]['AlterBerechnet'])
-    maxAge = np.max(data[data['AlterBerechnet'] > 0]['AlterBerechnet'])
-    numAge = maxAge + 1
-    labelsLK, levelsLK = data['MeldeLandkreis'].factorize()
-    data['LandkreisID'] = labelsLK
-    minLK = np.min(data['LandkreisID'])
-    maxLK = np.max(data['LandkreisID'])
-    numLK = maxLK + 1
-    labels, levelsGe = data['Geschlecht'].factorize()
-    data['GeschlechtID'] = labels
-    minGe = np.min(data['GeschlechtID'])
-    maxGe = np.max(data['GeschlechtID'])
-    numGender = maxGe + 1
-    Cases = np.zeros([numDays, numLK, numAge, numGender])
-    Hospitalized = np.zeros([numDays, numLK, numAge, numGender])
-    Cured = np.zeros([numDays, numLK, numAge, numGender])
-    Dead = np.zeros([numDays, numLK, numAge, numGender])
-    # data = data.set_index('InterneRef') # to make it unique
-    for index, row in data.iterrows():
-        myLK = int(row['LandkreisID'])
-        myday = (row[whichDate] - day1).days
-        if myday is np.nan:
-            myday = (row['Meldedatum']-day1).days
-        myAge = row['AlterBerechnet']
-        myGender = row['GeschlechtID']
-        if myAge < 1:
-            print('unknown age.' + str(myAge)+'... skipping ...')
-            continue
-        Cases[myday, myLK, myAge, myGender] += 1.0
-        myCuredDay = (row['AbsonderungEnde'] - day1).days
-        if myCuredDay is not np.nan:
-            Cured[myCuredDay, myLK, myAge, myGender] += 1
-        if row['HospitalisierungStatus'] == "Ja":
-            Hospitalized[myday, myLK, myAge, myGender] += 1
-        myDeadDay = (row['VerstorbenDatum'] - day1).days
-        if myDeadDay is not np.nan:
-            Dead[myDeadDay, myLK, myAge, myGender] += 1
-    Dates = pd.date_range(start = day1, periods=numDays).map(lambda x: x.strftime('%d.%m.%Y')).to_list()
-
-    df = df.set_index('Kreisfreie Stadt\nKreis / Landkreis')
-    Area = np.zeros(numLK)
-    PopW = np.zeros(numLK)
-    PopM = np.zeros(numLK)
-    for lk, level in zip(np.arange(numLK), levelsLK):
-        if level[:3] == 'LK ':
-            level = level[3:]
-        elif level[:3] == 'SK ':
-            level = level[3:]+', Stadt'
-        mySuppl = df.loc[level]
-        Area[lk] = mySuppl['Flaeche in km2']
-        PopW[lk] = mySuppl['Bev. W']
-        PopM[lk] = mySuppl['Bev. M']
-    if True:
-        # now adapt the age groups to the RKI-data:
-        Ages = ('0-4','5-14', '15-34', '35-59', '60-79', '> 80')
-        AgeGroupStart = (5,14,34,59,79, None)
-        C=[];D=[];Cu=[];H=[]
-        AgeStart=0
-        for AgeEnd in AgeGroupStart:
-            C.append(np.sum(Cases[:,:,AgeStart:AgeEnd,:],-2))
-            D.append(np.sum(Dead[:,:,AgeStart:AgeEnd,:],-2))
-            Cu.append(np.sum(Cured[:,:,AgeStart:AgeEnd,:],-2))
-            H.append(np.sum(Hospitalized[:,:,AgeStart:AgeEnd,:],-2))
-            AgeStart = AgeEnd
-        Cases = np.stack(C,-2);Dead = np.stack(D,-2);Cured = np.stack(Cu,-2); Hospitalized = np.stack(H,-2)
-    else:
-        Ages = np.arange(numAge)
-    Gender = levelsGe
-    CumulCases = np.cumsum(Cases,0)
-    CumulDead = np.cumsum(Dead,0)
-    CumulHospitalized = np.cumsum(Hospitalized,0)
-
-    measured = {'Cases': Cases, 'Hospitalized': Hospitalized, 'Dead': Dead, 'Cured': Cured,
-                'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages,
-                'PopM': PopM, 'PopW':PopW, 'Area': Area, 'CumulCases': CumulCases,
-                'CumulDead': CumulDead,'CumulHospitalized': CumulHospitalized}
-    return measured
-
-def cumulate(rki_data, df):
-    # rki_data.keys()  # IdBundesland', 'Bundesland', 'Landkreis', 'Altersgruppe', 'Geschlecht',
-    #        'AnzahlFall', 'AnzahlTodesfall', 'ObjectId', 'Meldedatum', 'IdLandkreis'
-    # TotalCases = 0;
-    # whichDate = 'Refdatum'  # 'Meldedatum'
-    whichDate = 'Meldedatum' # It may be useful to stick to the "Meldedatum", since Refdatum is a mix anyway.
-    # Furthermore: Redatum has a missing data problem near the end of the reporting period, so it always goes down!
-    rki_data = rki_data.sort_values(whichDate)
-    day1 = toDay(np.min(rki_data[whichDate]))
-    dayLast = toDay(np.max(rki_data[whichDate]))
-    toDrop = []
-    toDropID = []
-    ValidIDs = df['Key'].to_numpy()
-    print("rki_data (before drop): " + str(np.sum(rki_data.to_numpy()[:,5])))
-    # sumDropped=0
-    rki_data = rki_data.set_index('ObjectId') # to make it unique
-    for index, row in rki_data.iterrows():
-        myId = int(row['IdLandkreis'])
-        if myId not in ValidIDs:
-            myLK = row['Landkreis']
-            if myId not in toDropID:
-                print("WARNING: RKI-data district " + str(myId) + ", " + myLK + " is not in census. Dropping this data.")
-                toDropID.append(myId)
-            toDrop.append(index)
-            # print("Dropping: "+str(index)+", "+str(myLK))
-            # sumDropped += int(row['AnzahlFall'])
-            # print("Dropped: "+str(sumDropped))
-    rki_data = rki_data.drop(toDrop)
-    print("rki_data (directly after drop): " + str(np.sum(rki_data.to_numpy()[:,5])))
-
-    IDs = getLabels(rki_data, 'IdLandkreis')
-    LKs = getLabels(rki_data, 'Landkreis')
-    Ages = getLabels(rki_data, 'Altersgruppe')
-    Gender = getLabels(rki_data, 'Geschlecht')
-    CumulSumCases = np.zeros([len(LKs), len(Ages), len(Gender)])
-    AllCumulCases = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    CumulSumDead = np.zeros([len(LKs), len(Ages), len(Gender)])
-    AllCumulDead = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    AllCases = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    AllDead = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    AllCured = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    CumulSumCured = np.zeros([len(LKs), len(Ages), len(Gender)])
-    AllCumulCured = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    Area = np.zeros(len(LKs))
-    PopW = np.zeros(len(LKs))
-    PopM = np.zeros(len(LKs))
-    allDates = (dayLast - day1 + 1)*['']
-
-    df = df.set_index('Key')
-    # IDs = [int(ID) for ID in IDs]
-    # diff = df.index.difference(IDs)
-    # if len(diff) != 0:
-    #     for Id in diff:
-    #         Name = df.loc[Id]['Kreisfreie Stadt\nKreis / Landkreis']
-    #         print("WARNING: "+str(Id)+", "+Name+" is not mentioned in the RKI List. Removing Entry.")
-    #         df = df.drop(Id)
-    #     IDs = [int(ID) for ID in IDs]
-    # sorted = df.loc[IDs]
-
-    # CumulMale = np.zeros(dayLast-day1); CumulFemale = np.zeros(dayLast-day1)
-    # TMale = 0; TFemale = 0; # TAge = zeros()
-    prevday = -1
-    sumTotal = 0
-    for index, row in rki_data.iterrows():
-        myLKId = row['IdLandkreis']
-        myLK = LKs.index(row['Landkreis'])
-        if myLKId not in IDs:
-            ValueError("Something went wrong! These datasets should have been dropped already.")
-        mySuppl = df.loc[int(myLKId)]
-        Area[myLK] = mySuppl['Flaeche in km2']
-        PopW[myLK] = mySuppl['Bev. W']
-        PopM[myLK] = mySuppl['Bev. M']
-        # datetime = pd.to_datetime(row['Meldedatum'], unit='ms').to_pydatetime()
-        # day = toDay(row['Meldedatum']) - day1  # convert to days with an offset
-        day = toDay(row[whichDate]) - day1  # convert to days with an offset
-        # dayD = datetime.strptime(row['Datenstand'][:10], '%d.%m.%Y') - datetime(1970,1,1)
-        # rday = dayD.days - day1  # convert to days with an offset
-        # print(day)
-        allDates[day] = pd.to_datetime(row[whichDate], unit='ms').strftime("%d.%m.%Y") #dayfirst=True, yearfirst=False
-        myAge = Ages.index(row['Altersgruppe'])
-        myG = Gender.index(row['Geschlecht'])
-        NeuerFall = row['NeuerFall']  # see the fetch_data.py file for the details of what NeuerFall means.
-        if NeuerFall == -1:
-            AnzahlFall = 0
-        else:
-            AnzahlFall = row['AnzahlFall']
-        sumTotal += AnzahlFall
-        NeuerTodesFall = row['NeuerTodesfall']  # see the fetch_data.py file for the details of what NeuerFall means.
-        if NeuerTodesFall == 0 or NeuerTodesFall == 1: # only new cases are counted. NeuerTodesFall == 0 or
-            AnzahlTodesfall = row['AnzahlTodesfall']
-        else:
-            AnzahlTodesfall = 0
-        NeuGenesen = row['NeuGenesen']  # see the fetch_data.py file for the details of what NeuerFall means.
-        if NeuGenesen == 0 or NeuGenesen == 1: # only newly cured
-             AnzahlGenesen = row['AnzahlGenesen']
-        else:
-            AnzahlGenesen = 0
-        AllCases[day, myLK, myAge, myG] += AnzahlFall
-        AllDead[day, myLK, myAge, myG] += AnzahlTodesfall
-        AllCured[day, myLK, myAge, myG] += AnzahlGenesen
-
-        CumulSumCases[myLK, myAge, myG] += AnzahlFall
-        AllCumulCases[prevday + 1:day + 1, :, :, :] = CumulSumCases
-        CumulSumDead[myLK, myAge, myG] += AnzahlTodesfall
-        AllCumulDead[prevday + 1:day + 1, :, :, :] = CumulSumDead
-        CumulSumCured[myLK, myAge, myG] += AnzahlGenesen
-        AllCumulCured[prevday + 1:day + 1, :, :, :] = CumulSumCured
-        if day < prevday:
-            print(row['Key'])
-            raise ValueError("Something is wrong: dates are not correctly ordered")
-        prevday = day-1
-
-    print("Total Cases: "+ str(sumTotal))
-    print("rki_data (at the end): " + str(np.sum(rki_data.to_numpy()[:,5])))
-    measured = {'CumulCases': AllCumulCases, 'CumulDead': AllCumulDead, 'Cases': AllCases, 'Dead': AllDead, 'Cured': AllCured,
-                'IDs': IDs, 'LKs':LKs, 'PopM': PopM, 'PopW': PopW, 'Area': Area, 'Ages':Ages, 'Gender': Gender, 'Dates': allDates}
-    # AllCumulCase, AllCumulDead, AllCumulCured, (IDs, LKs, PopM, PopW, Area, Ages, Gender, allDates)
-    return measured
-
-
 def plotAgeGroups(res1, res2):
     plt.figure()
     plt.title('Age Groups')
@@ -817,13 +581,11 @@ class axisType:
     individual = 'individual'
     uniform = 'uniform'
 
-
 def prependOnes(s1, s2):
     l1 = len(s1);
     l2 = len(s2)
     maxDim = max(l1, l2)
     return np.array((maxDim - l1) * [1] + list(s1)), np.array((maxDim - l2) * [1] + list(s2))
-
 
 def equalShape(s1, s2):
     if isinstance(s1, tf.TensorShape):
@@ -832,7 +594,6 @@ def equalShape(s1, s2):
         s2 = s2.as_list()
     s1, s2 = prependOnes(s1, s2)
     return np.linalg.norm(s1 - s2) == 0
-
 
 class Axis:
     def ramp(self):
@@ -959,6 +720,7 @@ class Model:
         self.RegisteredAxes = []  # just to have a convenient way of indexing them
         self.State = {}  # dictionary of state variables
         self.Var = {}  # may be variables or lambdas
+        self.VarDisplayLog = {} # display this variable with a logarithmic slider
         self.rawVar = {}  # saves the raw variables
         self.toRawVar = {}  # stores the inverse functions to initialize the rawVar
         self.toVar = {}  # stores the function to get from the rawVar to the Var
@@ -1049,7 +811,7 @@ class Model:
             prodAx = res
         self.State[name] = prodAx
 
-    def newVariables(self, VarList=None, forcePos=True, normalize='max', b2=1.0, overwrite=True):
+    def newVariables(self, VarList=None, forcePos=True, normalize='max', b2=1.0, overwrite=True, displayLog=True):
         if VarList is not None:
             for name, initVal in VarList.items():
                 if name in self.Var:
@@ -1084,6 +846,7 @@ class Model:
                 self.rawVar[name] = rawvar  # this is needed for optimization
                 self.toVar[name] = toVarFkt3
                 self.Var[name] = lambda: toVarFkt3(rawvar)
+                self.VarDisplayLog[name] = displayLog
                 self.Original[name] = rawvar.numpy()  # store the original
 
         return self.Var[name]  # return the last variable for convenience
@@ -1160,7 +923,7 @@ class Model:
             if resultT.shape == Results[resultTransferName].shape:
                 Results[resultTransferName] = Results[resultTransferName] + resultT
             else:
-                raise ValueError('Shape not the same in resultTransfer ' + resultTransferName + ' from:' + fromName + ' to ' + toName)
+                raise ValueError('Shape not the same in resultTransfer ' + resultTransferName)
         else:
             Results[resultTransferName] = resultT
         return Results
@@ -1479,7 +1242,7 @@ class Model:
             res = Optimize(opt, loss=loss_fnOnly, lossScale=lossScale)  # self.ResultVals.items()
         else:
             res = loss_fnOnly()
-            print("Loss is: " + str(res))
+            print("Loss is: " + str(res.numpy()))
         self.ResultVals = result_dict  # stores how to calculate results
         ResultVals = result_dict()  # calculates the results
         self.Progression = progression_dict
@@ -1561,29 +1324,74 @@ class Model:
         plt.tight_layout()
 
     def setPlotCumul(self, val):
+        """
+            toggles the plot mode between cumulative (points) and non-cumulative (bars) plots.
+            both plots use the same underlying data, which is replaced but the other plot is hidden.
+        """
+        from bokeh.plotting import Figure
+        from bokeh.io.notebook import CommsHandle
         self.plotCumul = val['new']
+        newDict={}
+        for fn, f in self.DataDict.items():
+            print('looking for figures: ')
+            print(f)
+            if isinstance(f, Figure):
+                for r in f.renderers:
+                    r.visible = False # hides all the plots in the figure
+                print('cleared renderer of figure '+fn+' named: '+f.name)
+                newDict[fn] = f # keep the figure form being deleted
+            elif isinstance(f, CommsHandle) or isinstance(f,str):
+                newDict[fn] = f # handles to figures are also saved in this dict
 
-    def plotB(self, Figure, x, toPlot, name, color=None, line_dash=None, withDots=False):
+        self.DataDict = newDict # just keep the figures, but delete all the data
+
+    def plotB(self, Figure, x, toPlot, name, color=None, line_dash=None, withDots=False, useBars=True):
         # create a column data source for the plots to share
         from bokeh.models import ColumnDataSource
 
         if self.plotCumul:
-            toPlot = np.cumsum(toPlot,0)
+            toPlot = np.cumsum(toPlot, 0)
+            useBars = False
+            print('Cumul: set useBars to False')
 
+        if isinstance(x,pd.core.indexes.datetimes.DatetimeIndex):
+            msPerDay = 0.6 * 1000.0*60*60*24
+        else:
+            msPerDay = 0.6
         if name not in self.DataDict:
+            print('replotting: '+name)
             source = ColumnDataSource(data=dict(x=x, y=toPlot))
             self.DataDict[name] = source
-            if withDots:
-                r = Figure.circle('x', 'y', line_width=1.5, alpha=0.8, color=color, source=source)
             if self.plotCumul:
                 mylegend = name+"_cumul"
             else:
                 mylegend = name
-            r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color,line_dash=line_dash, legend_label=mylegend, source=source)
+            if useBars:
+                if withDots:
+                    r = Figure.circle('x', 'y', line_width=1.5, alpha=0.9, color=color, source=source, name=name)
+                    r.visible = True
+                    r = Figure.vbar('x', top='y', width=msPerDay, alpha=0.6, color=color, source=source, legend_label=mylegend, name=name)
+                    r.visible = True
+                else:
+                    r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color, line_dash=line_dash, legend_label=mylegend, source=source, name=name)
+                    r.visible = True
+            else:
+                if withDots:
+                    r = Figure.circle('x', 'y', line_width=1.5, alpha=0.8, color=color, source=source, name=name)
+                    r.visible = True
+                r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color,line_dash=line_dash, legend_label=mylegend, source=source, name=name)
+                r.visible = True
             # print('First plot of: '+name)
         else:
-            # print('Updating y-data of: '+name)
+            print('Updating y-data of: '+name)
             self.DataDict[name].data['y'] = toPlot
+
+    def getDates(self, Dates, toPlot):
+        if Dates is None:
+            return np.arange(toPlot.shape[0])
+        if Dates is not None and len(Dates) < toPlot.shape[0]:
+            Dates = pd.date_range(start=Dates[0], periods=toPlot.shape[0]).map(lambda x: x.strftime('%d.%m.%Y'))
+        return pd.to_datetime(Dates, dayfirst=True)
 
     def showResultsBokeh(self, title='Results', xlabel='time step', Scale=False, xlim=None, ylim=None,
                          ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0, logY=True,
@@ -1616,12 +1424,13 @@ class Model:
         self.DataDict['_title'] = FigureTitle
         newFigure=False
         if FigureIdx not in self.DataDict:
-            # if Dates is not None:
-            #     resultFigure = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
-            #                                background_fill_color='#efefef', tools=TOOLS, x_axis_type='datetime')
-            # else:
-            self.DataDict[FigureIdx] = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
-                                       background_fill_color='#efefef', tools=TOOLS)
+            if Dates is not None:
+                self.DataDict[FigureIdx] = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
+                                                  background_fill_color='#efefef', tools=TOOLS, x_axis_type='datetime', name=FigureIdx)
+                self.DataDict[FigureIdx].xaxis.major_label_orientation = np.pi / 4
+            else:
+                self.DataDict[FigureIdx] = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
+                                           background_fill_color='#efefef', tools=TOOLS, name=FigureIdx)
             self.DataDict[FigureIdx].xaxis.axis_label = 'time'
             self.DataDict[FigureIdx].yaxis.axis_label = ylabel
             newFigure=True
@@ -1643,13 +1452,10 @@ class Model:
                 if toPlot.ndim > 1:
                     colors = itertools.cycle(palette)
                     for d, color in zip(range(toPlot.shape[1]), colors):
-                        if Dates is not None:
-                            x = Dates
-                        else:
-                            x = np.arange(toPlot.shape[0])
+                        x = self.getDates(Dates, toPlot)
                         self.plotB(self.DataDict[FigureIdx], x, toPlot[:,d], name=resN + "_" + dictN+"_"+labels[0][d], withDots=True, color=color, line_dash=style)
                 else:
-                    x = np.arange(toPlot.shape[0])
+                    x = self.getDates(Dates, toPlot)
                     self.plotB(self.DataDict[FigureIdx], x, toPlot, name=resN + "_" + dictN + "_" + labels[0][d], withDots=True, color=color, line_dash=style)
             n += 1
         for dictN, toPlot in self.FitResultVals.items():
@@ -1663,11 +1469,11 @@ class Model:
             if toPlot.ndim > 1:
                 colors = itertools.cycle(palette)
                 for d, color in zip(range(toPlot.shape[1]), colors):
-                    x = np.arange(toPlot.shape[0])
+                    x = self.getDates(Dates, toPlot)
                     self.plotB(self.DataDict[FigureIdx], x, toPlot[:,d], name="Fit_" + dictN + "_" + labels[0][d], color=color, line_dash=style)
             else:
                 color = colors
-                x = np.arange(toPlot.shape[0])
+                x = self.getDates(Dates, toPlot)
                 self.plotB(self.DataDict[FigureIdx], x, toPlot, name="Fit_" + dictN, color=color, line_dash=style)
         # if xlim is not None:
         #     plt.xlim(xlim[0],xlim[1])
@@ -1839,10 +1645,6 @@ class Model:
                 if Dates is not None:
                     self.showDates(Dates,offsetDay)
 
-    def calcPlot(self, data_dict, Tmax, NIter=50, otype='L-BFGS', oparam={"learning_rate": None}, verbose=False, lossScale=None):
-        fittedVars, fittedRes = self.fit(FitDict, Tmax, otype=otype, oparam=oparam, NIter=NIter, verbose=True, lossScale=lossScale)
-        p = self.showSimRes()
-
     def assignToWidget(self, idx, varN = None, widget=None):
         val = np.squeeze(self.Var[varN]())[idx['new']]
         widget.value = val
@@ -1851,12 +1653,37 @@ class Model:
     def updateAllWidgets(self, dummy=None):
         print('updateAllWidgets')
         for varN, w in self.WidgetDict.items():
+            newval = self.Var[varN]()
             if isinstance(w, tuple):
                 idx = w[1].value
-                w[0].value = np.squeeze(self.Var[varN]())[idx]
+                for n in range(np.squeeze(newval).shape[0]):
+                    val = np.squeeze(newval)[n]
+                    if val < w[0].min:
+                        if val > 0:
+                            w[0].min = val/2.0
+                        else:
+                            w[0].min = val*2.0
+                    if val > w[0].max:
+                        if val > 0:
+                            w[0].max = val*2.0
+                        else:
+                            w[0].max = val/2.0
+                w[0].value = np.squeeze(newval)[idx]
             else:
-                val = self.Var[varN]()
+                val = newval
                 w.value = val
+
+    def getValueWidget(self, myval, varN):
+        from ipywidgets import widgets, Layout
+        if self.VarDisplayLog[varN]:
+            mymin = np.round(np.log10(myval)) - 1
+            mymax = np.round(np.log10(myval)) + 1
+            valueWidget = widgets.FloatLogSlider(value=myval, base=10, min=mymin, max=mymax)
+        else:
+            mymin = 0.0
+            mymax = myval*3.0
+            valueWidget = widgets.FloatSlider(value=myval, base=10, min=mymin, max=mymax)
+        return valueWidget
 
     def getGUI(self, fitVars = None, nx=3, showResults=None, doFit=None):
         from ipywidgets import widgets, Layout
@@ -1885,10 +1712,7 @@ class Model:
                 inFitWidget = widgets.Checkbox(value=(varN in self.FitVars), indent=False, layout=tickLayout, description=ax.name)
                 drop = widgets.Dropdown(options=options, indent=False, value=0)
                 dropWidget = widgets.HBox((inFitWidget, drop), display='flex', layout=item_layout)
-                myval = np.squeeze(var)[0]
-                mymin = np.round(np.log10(myval))-1
-                mymax = np.round(np.log10(myval))+1
-                valueWidget = widgets.FloatLogSlider(value=myval, base=10, min=mymin, max=mymax)
+                valueWidget = self.getValueWidget(np.squeeze(var)[0], varN)
                 valueWidgetBox = widgets.HBox((widgets.Label(varN), valueWidget), layout=item_layout)
                 # valueWidget = widgets.HBox((inFitWidget,valueWidget))
                 widget = widgets.Box((dropWidget, valueWidgetBox), layout=box_layout)
@@ -1901,10 +1725,7 @@ class Model:
                 px += 1
             else:
                 inFitWidget = widgets.Checkbox(value=(varN in self.FitVars), indent=False, layout=tickLayout, description=varN)
-                myval = np.squeeze(var)
-                mymin = np.round(np.log10(myval))-3
-                mymax = np.round(np.log10(myval))+3
-                valueWidget = widgets.FloatLogSlider(value=myval, base=10, min=mymin, max=mymax)
+                valueWidget = self.getValueWidget(np.squeeze(var), varN)
                 widget = widgets.HBox((inFitWidget, valueWidget), display='flex', layout=box2_layout)
                 # showResults=showResults
                 valueWidget.observe(functools.partial(self.assignWidgetVar, varname=varN), names='value')
@@ -1927,6 +1748,7 @@ class Model:
         if showResults is not None:
             radioCumul = widgets.Checkbox(value=self.plotCumul, indent=False, layout=tickLayout, description='cumul.')
             radioCumul.observe(self.setPlotCumul, names='value')
+            drop.observe(functools.partial(self.assignToWidget, varN=varN, widget=valueWidget), names='value')
             PlotWidget = widgets.Button(description='Plot')
             PlotWidget.on_click(showResults)
             lastRow.append(PlotWidget)
