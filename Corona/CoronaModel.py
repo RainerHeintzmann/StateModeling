@@ -182,3 +182,4 @@ def plotRaw(AllMeasured):
     plt.xticks(range(offsetDay, len(AllMeasured['Dates']), 7), [date for date in AllMeasured['Dates'][offsetDay:-1:7]], rotation="vertical")
     # plt.xlim(45, len(Dates))
     plt.tight_layout()
+

@@ -859,6 +859,10 @@ class Model:
 
     def assignWidgetVar(self, newval, varname=None, relval=None, idx=None, showResults=None):
         # print('assignWidgetVar: '+varname+", val:" + str(newval))
+        mywidget = self.WidgetDict[varname]
+        if isinstance(mywidget, tuple) or isinstance(mywidget,list):
+            mywidget = mywidget[0]
+        self.adjustMinMax(mywidget, newval.new)
         if idx is None:
             newval = np.reshape(newval.new, self.Var[varname]().shape)
         else:
@@ -1333,15 +1337,15 @@ class Model:
         from bokeh.io.notebook import CommsHandle
         self.plotCumul = val['new']
         for fn, f in self.DataDict.items():
-            print('looking for figures: ')
-            print(f)
+            #print('looking for figures: ')
+            #print(f)
             if isinstance(f, Figure):
                 for r in f.renderers:
                     if r.name.startswith(cumulPrefix):
                         r.visible = self.plotCumul # shows cumul plots according to settings
                     else:
                         r.visible = not self.plotCumul
-                print('cleared renderer of figure '+fn+' named: '+f.name)
+                #print('cleared renderer of figure '+fn+' named: '+f.name)
 
     def plotB(self, Figure, x, toPlot, name, color=None, line_dash=None, withDots=False, useBars=True):
         # create a column data source for the plots to share
@@ -1352,20 +1356,20 @@ class Model:
             toPlot = np.cumsum(toPlot, 0)
             useBars = False
             myPrefix = cumulPrefix
-            print('Cumul: set useBars to False')
+            # print('Cumul: set useBars to False')
 
         if isinstance(x,pd.core.indexes.datetimes.DatetimeIndex):
             msPerDay = 0.6 * 1000.0*60*60*24
         else:
             msPerDay = 0.6
         if myPrefix + name not in self.DataDict:
-            print('replotting: '+name)
+            # print('replotting: '+name)
             self.DataDict[myPrefix + name] = 'was plotted'
             if name not in self.DataDict:
                 source = ColumnDataSource(data=dict(x=x, y=toPlot))
                 self.DataDict[name] = source
             else:
-                print('Updating y-data of: ' + name)
+                #print('Updating y-data of: ' + name)
                 self.DataDict[name].data['y'] = toPlot
                 source = self.DataDict[name]
             if self.plotCumul:
@@ -1389,7 +1393,7 @@ class Model:
                 r.visible = True
             # print('First plot of: '+name)
         else:
-            print('Updating y-data of: '+name)
+            # print('Updating y-data of: '+name)
             self.DataDict[name].data['y'] = toPlot
 
     def getDates(self, Dates, toPlot):
@@ -1487,10 +1491,10 @@ class Model:
         #     plt.ylim(ylim[0],ylim[1])
         # push_notebook()
         if newFigure:
-            print('showing figure')
+            #print('showing figure')
             self.DataDict[FigureIdx + '_notebook_handle'] = show(self.DataDict[FigureIdx], notebook_handle=True)
         else:
-            print('pushing notebook')
+            #print('pushing notebook')
             push_notebook(handle=self.DataDict[FigureIdx + '_notebook_handle'])
 
     def showResults(self, title='Results', xlabel='time step', Scale=False, xlim=None, ylim=None, ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0, logY=True, styles = ['.', '-', ':', '--','-.','*'], figsize=None):
@@ -1651,29 +1655,42 @@ class Model:
                 if Dates is not None:
                     self.showDates(Dates,offsetDay)
 
+    def toggleInFit(self, toggle, name):
+        if toggle['new']:
+            #print('added '+name)
+            self.FitVars.append(name)
+        else:
+            #print('removed '+name)
+            self.FitVars.remove(name)
+
     def assignToWidget(self, idx, varN = None, widget=None):
         val = np.squeeze(self.Var[varN]())[idx['new']]
+        self.adjustMinMax(widget, val)
         widget.value = val
-        print('assignToWidget, varN: '+varN+', idx='+str(idx['new'])+', val:'+str(val)+', widget: '+widget.description)
+        #print('assignToWidget, varN: '+varN+', idx='+str(idx['new'])+', val:'+str(val)+', widget: '+widget.description)
+
+    def adjustMinMax(self, widget, val):
+        #print('AdjustMinMax: '+str(widget.min)+', val. '+ str(val) +', max:'+str(widget.max))
+        from ipywidgets import widgets
+        if isinstance(widget, widgets.FloatLogSlider):
+            lval = np.log10(val)
+        else:
+            lval = val
+        if lval <= widget.min+(widget.max-widget.min)/10.0:
+            widget.min = lval - 1.0
+        if lval >= widget.max-(widget.max-widget.min)/10.0:
+            widget.max = lval + 1.0
+        #print('post AdjustMinMax: '+str(widget.min)+', val. '+ str(val) +', max:'+str(widget.max))
 
     def updateAllWidgets(self, dummy=None):
-        print('updateAllWidgets')
+        #print('updateAllWidgets')
         for varN, w in self.WidgetDict.items():
             newval = self.Var[varN]()
             if isinstance(w, tuple):
                 idx = w[1].value
                 for n in range(np.squeeze(newval).shape[0]):
                     val = np.squeeze(newval)[n]
-                    if val < w[0].min:
-                        if val > 0:
-                            w[0].min = val/2.0
-                        else:
-                            w[0].min = val*2.0
-                    if val > w[0].max:
-                        if val > 0:
-                            w[0].max = val*2.0
-                        else:
-                            w[0].max = val/2.0
+                    self.adjustMinMax(w[0], val)
                 w[0].value = np.squeeze(newval)[idx]
             else:
                 val = newval
@@ -1716,6 +1733,7 @@ class Model:
                 else:
                     options = [(ax.Labels[d],d) for d in range(len(ax.Labels))]
                 inFitWidget = widgets.Checkbox(value=(varN in self.FitVars), indent=False, layout=tickLayout, description=ax.name)
+                inFitWidget.observe(functools.partial(self.toggleInFit, name=varN), names='value')
                 drop = widgets.Dropdown(options=options, indent=False, value=0)
                 dropWidget = widgets.HBox((inFitWidget, drop), display='flex', layout=item_layout)
                 valueWidget = self.getValueWidget(np.squeeze(var)[0], varN)
@@ -1731,6 +1749,7 @@ class Model:
                 px += 1
             else:
                 inFitWidget = widgets.Checkbox(value=(varN in self.FitVars), indent=False, layout=tickLayout, description=varN)
+                inFitWidget.observe(functools.partial(self.toggleInFit, name=varN), names='value')
                 valueWidget = self.getValueWidget(np.squeeze(var), varN)
                 widget = widgets.HBox((inFitWidget, valueWidget), display='flex', layout=box2_layout)
                 # showResults=showResults
@@ -1766,7 +1785,7 @@ class Model:
         if doFit is not None:
             nIterWidget = widgets.IntSlider(value=100, description='NIter')
             doFitWidget = widgets.Button(description='Fit')
-            doFitWidget.on_click(lambda b: doFit(NIter=nIterWidget.value))
+            doFitWidget.on_click(lambda b: self.updateAllWidgets(doFit(NIter=nIterWidget.value)))
             lastRow.append(doFitWidget)
             lastRow.append(nIterWidget)
         widget = widgets.HBox(lastRow)
