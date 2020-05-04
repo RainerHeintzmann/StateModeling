@@ -9,12 +9,12 @@ import matplotlib.pyplot as plt
 from Corona.LoadData import loadData, preprocessData
 from Corona.CoronaModel import CoronaModel, plotTotalCases, plotRaw
 
-# data = loadData(r"COVID-19 Linelist 2020_04_23.xlsx", useThuringia = True, pullData=False)
-data = loadData(r"COVID-19 Linelist 2020_04_30.xlsx", useThuringia = True, pullData=False)
+#data = loadData(r"COVID-19 Linelist 2020_04_23.xlsx", useThuringia = True, pullData=False)
+# data = loadData(r"COVID-19 Linelist 2020_04_30.xlsx", useThuringia = True, pullData=False)
 # AllMeasured = preprocessData(AllMeasured)
-# AllMeasured = loadData(useThuringia = False, pullData=False)
+AllMeasured = loadData(useThuringia = False, pullData=True)
 ExampleRegions = ['SK Jena', 'LK Greiz'] # 'SK Gera',
-AllMeasured = preprocessData(data, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
+AllMeasured = preprocessData(AllMeasured, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
 plotRaw(AllMeasured)
 
 M = CoronaModel(AllMeasured)

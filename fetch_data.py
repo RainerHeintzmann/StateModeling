@@ -64,13 +64,25 @@ class DataFetcher:
     def fetch_french_data():
         pass
 
+    # @staticmethod
+    # def fetch_all_german_data():
+    #     dfs = []
+    #     with urllib.request.urlopen(
+    #             "https://services7.arcgis.com/mOBPykOjAyBO2ZKk/arcgis/rest/services/RKI_COVID19/FeatureServer/0//query?where=Datenstand%3D%27" +
+    #                                 "20-04-28" + "%27&objectIds=&time=&resultType=none&outFields=*&returnIdsOnly=false&returnUniqueIdsOnly=false&returnCountOnly=false&returnDistinctValues=false&cacheHint=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&having=&resultOffset=&resultRecordCount=&sqlFormat=none&f=pjson&token=") as url:
+    #             json_data = json.loads(url.read().decode())["features"]
+    #         json_data = [x["attributes"] for x in json_data if "attributes" in x]
+    #         if len(json_data) > 0:
+    #             dfs.append(pd.DataFrame(json_data))
+    #     return pd.concat(dfs)
+
     @staticmethod
     def fetch_german_data():
         start_date = date(2020, 1, 1)
         end_date = date.today() + timedelta(days=1)
         dfs = []
         for single_date in pd.date_range(start_date, end_date):
-            print("readin: "+str(single_date))
+            print("reading: "+str(single_date))
             with urllib.request.urlopen(
                     "https://services7.arcgis.com/mOBPykOjAyBO2ZKk/arcgis/rest/services/RKI_COVID19/FeatureServer/0//query?where=Meldedatum%3D%27" + str(
                             single_date.strftime(

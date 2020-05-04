@@ -551,20 +551,6 @@ def showResiduum(meas, fit):
     plt.ylabel('mean difference / cases')
     plt.title('residuum')
 
-
-def toDay(timeInMs):
-    return int(timeInMs / (1000 * 60 * 60 * 24))
-
-
-def getLabels(rki_data, label):
-    try:
-        labels = rki_data[label].unique()
-        labels.sort();
-        labels = labels.tolist()
-    except KeyError:
-        labels = ['BRD']
-    return labels
-
 def plotAgeGroups(res1, res2):
     plt.figure()
     plt.title('Age Groups')
@@ -1465,8 +1451,9 @@ class Model:
                         x = self.getDates(Dates, toPlot)
                         self.plotB(self.DataDict[FigureIdx], x, toPlot[:,d], name=resN + "_" + dictN+"_"+labels[0][d], withDots=True, color=color, line_dash=style)
                 else:
+                    color = next(colors)
                     x = self.getDates(Dates, toPlot)
-                    self.plotB(self.DataDict[FigureIdx], x, toPlot, name=resN + "_" + dictN + "_" + labels[0][d], withDots=True, color=color, line_dash=style)
+                    self.plotB(self.DataDict[FigureIdx], x, toPlot, name=resN + "_" + dictN + "_" + labels[0][0], withDots=True, color=color, line_dash=style)
             n += 1
         for dictN, toPlot in self.FitResultVals.items():
             if (subPlot is not None) and (dictN not in subPlot):
@@ -1482,7 +1469,7 @@ class Model:
                     x = self.getDates(Dates, toPlot)
                     self.plotB(self.DataDict[FigureIdx], x, toPlot[:,d], name="Fit_" + dictN + "_" + labels[0][d], color=color, line_dash=style)
             else:
-                color = colors
+                color = next(colors)
                 x = self.getDates(Dates, toPlot)
                 self.plotB(self.DataDict[FigureIdx], x, toPlot, name="Fit_" + dictN, color=color, line_dash=style)
         # if xlim is not None:
@@ -1773,7 +1760,7 @@ class Model:
         if showResults is not None:
             radioCumul = widgets.Checkbox(value=self.plotCumul, indent=False, layout=tickLayout, description='cumul.')
             radioCumul.observe(self.setPlotCumul, names='value')
-            drop.observe(functools.partial(self.assignToWidget, varN=varN, widget=valueWidget), names='value')
+            # drop.observe(functools.partial(self.assignToWidget, varN=varN, widget=valueWidget), names='value')
             PlotWidget = widgets.Button(description='Plot')
             PlotWidget.on_click(showResults)
             lastRow.append(PlotWidget)

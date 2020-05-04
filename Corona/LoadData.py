@@ -2,6 +2,7 @@ import fetch_data
 import pandas as pd
 import numpy as np
 import StateModeling as stm
+import matplotlib.pyplot as plt
 
 def loadData(filename = None, useThuringia = True, pullData=False):
 
@@ -12,11 +13,16 @@ def loadData(filename = None, useThuringia = True, pullData=False):
         # Thuringia = pd.read_excel(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\COVID-19 Linelist 2020_04_06.xlsx")
         Thuringia = pd.read_excel(basePath + '\\'+ filename)
         basePath = r"C:\Users\pi96doc\Documents\Programming\PythonScripts\StateModeling"
-        df = pd.read_excel(basePath + r"\Examples\bev_lk.xlsx")  # support information about the population
-        AllMeasured = binThuringia(Thuringia, df)
+        AllMeasured, day1, numdays = binThuringia(Thuringia, df)
         AllMeasured['Region'] = "Thuringia"
+        df = pd.read_excel(basePath + r"\Examples\bev_lk.xlsx")  # support information about the population
+        AllMeasured.update(addOtherData(Thuringia, df, day1, numdays)) # adds the supplemental information
     else:
-        basePath = r"C:\Users\pi96doc\Documents\Programming\PythonScripts\StateModeling"
+        import os
+        basePath = os.getcwd()
+        if basePath.endswith('Examples'):
+            basePath = basePath[:-9]  # to remove the Examples bit
+        # r"C:\Users\pi96doc\Documents\Programming\PythonScripts\StateModeling"
         if pullData:
             data = fetch_data.DataFetcher().fetch_german_data()
             # with open(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\Global_Mobility_Report.csv", 'r', encoding="utf8") as f:
@@ -24,7 +30,8 @@ def loadData(filename = None, useThuringia = True, pullData=False):
             # mobility = np.array(mobility[1:], dtype=np.float)
 
             df = pd.read_excel(basePath + r"\Examples\bev_lk.xlsx")  # support information about the population
-            AllMeasured = stm.cumulate(data, df)
+            AllMeasured, day1, numdays = cumulate(data, df)
+            AllMeasured.update(addOtherData(data, df, day1, numdays))  # adds the supplemental information
             np.save(basePath + r'\Data\AllMeasured', AllMeasured)
 
             # can be checked with
@@ -57,7 +64,38 @@ def stripQuotesFromAxes(data):
         data.rename(columns={ax: newax}, inplace=True)
     return data
 
-def binThuringia(data, df):
+def addOtherData(data, df, day1, numDays):
+    Dates = pd.date_range(start = day1, periods=numDays).map(lambda x: x.strftime('%d.%m.%Y'))
+
+    if 'Landkreis' in data.keys():
+        labelsLK, levelsLK = data['Landkreis'].factorize()
+        data['LandkreisID'] = labelsLK
+    else:
+        labelsLK, levelsLK = data['MeldeLandkreis'].factorize()
+        data['LandkreisID'] = labelsLK
+    maxLK = np.max(data['LandkreisID'])
+    numLK = maxLK + 1
+    df = df.set_index('Stadt\nKreis / Landkreis')
+    Area = np.zeros(numLK)
+    PopW = np.zeros(numLK)
+    PopM = np.zeros(numLK)
+    for lk, level in zip(np.arange(numLK), levelsLK):
+        if level[:3] == 'LK ':
+            level = level[3:]
+        elif level[:3] == 'SK ':
+            level = level[3:]+', Stadt'
+        mySuppl = df.loc[level]
+        Area[lk] = mySuppl['Flaeche in km2']
+        PopW[lk] = mySuppl['Bev. W']
+        PopM[lk] = mySuppl['Bev. M']
+    labels, levelsGe = data['Geschlecht'].factorize()
+    data['GeschlechtID'] = labels
+    Gender = levelsGe
+    measured = {'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender,
+                'PopM': PopM, 'PopW':PopW, 'Area': Area}
+    return measured
+
+def binThuringia(data):
     #import locale
     #locale.setlocale(locale.LC_ALL, 'de_DE')
     whichDate = 'Erkrankungsbeginn'
@@ -77,6 +115,7 @@ def binThuringia(data, df):
     data['AlterBerechnet'] = pd.to_numeric(data['AlterBerechnet'])
     data['InterneRef'] = pd.to_numeric(data['InterneRef'])
     day1 = np.min(data[whichDate])
+    firstDate = pd.to_datetime(data[whichDate], unit='ms')
     dayLast0 = np.max(data['Meldedatum'] - day1)
     dayLast1 = np.max(data['Erkrankungsbeginn'] - day1)
     dayLast2 = np.max(data['VerstorbenDatum'] - day1)
@@ -88,13 +127,11 @@ def binThuringia(data, df):
     numAge = maxAge + 1
     labelsLK, levelsLK = data['MeldeLandkreis'].factorize()
     data['LandkreisID'] = labelsLK
-    minLK = np.min(data['LandkreisID'])
-    maxLK = np.max(data['LandkreisID'])
+    minLK = np.min(data['LandkreisID']); maxLK = np.max(data['LandkreisID'])
     numLK = maxLK + 1
     labels, levelsGe = data['Geschlecht'].factorize()
     data['GeschlechtID'] = labels
-    minGe = np.min(data['GeschlechtID'])
-    maxGe = np.max(data['GeschlechtID'])
+    minGe = np.min(data['GeschlechtID']); maxGe = np.max(data['GeschlechtID'])
     numGender = maxGe + 1
     Cases = np.zeros([numDays, numLK, numAge, numGender])
     Hospitalized = np.zeros([numDays, numLK, numAge, numGender])
@@ -120,21 +157,23 @@ def binThuringia(data, df):
         myDeadDay = (row['VerstorbenDatum'] - day1).days
         if myDeadDay is not np.nan:
             Dead[myDeadDay, myLK, myAge, myGender] += 1
-    Dates = pd.date_range(start = day1, periods=numDays).map(lambda x: x.strftime('%d.%m.%Y'))
 
-    df = df.set_index('Kreisfreie Stadt\nKreis / Landkreis')
-    Area = np.zeros(numLK)
-    PopW = np.zeros(numLK)
-    PopM = np.zeros(numLK)
-    for lk, level in zip(np.arange(numLK), levelsLK):
-        if level[:3] == 'LK ':
-            level = level[3:]
-        elif level[:3] == 'SK ':
-            level = level[3:]+', Stadt'
-        mySuppl = df.loc[level]
-        Area[lk] = mySuppl['Flaeche in km2']
-        PopW[lk] = mySuppl['Bev. W']
-        PopM[lk] = mySuppl['Bev. M']
+
+    # Dates = pd.date_range(start = day1, periods=numDays).map(lambda x: x.strftime('%d.%m.%Y'))
+
+    # df = df.set_index('Kreisfreie Stadt\nKreis / Landkreis')
+    # Area = np.zeros(numLK)
+    # PopW = np.zeros(numLK)
+    # PopM = np.zeros(numLK)
+    # for lk, level in zip(np.arange(numLK), levelsLK):
+    #     if level[:3] == 'LK ':
+    #         level = level[3:]
+    #     elif level[:3] == 'SK ':
+    #         level = level[3:]+', Stadt'
+    #     mySuppl = df.loc[level]
+    #     Area[lk] = mySuppl['Flaeche in km2']
+    #     PopW[lk] = mySuppl['Bev. W']
+    #     PopM[lk] = mySuppl['Bev. M']
     if True:
         # now adapt the age groups to the RKI-data:
         Ages = ('0-4','5-14', '15-34', '35-59', '60-79', '> 80')
@@ -155,14 +194,14 @@ def binThuringia(data, df):
     CumulDead = np.cumsum(Dead,0)
     CumulHospitalized = np.cumsum(Hospitalized,0)
 
-    measured = {'Cases': Cases, 'Hospitalized': Hospitalized, 'Dead': Dead, 'Cured': Cured,
-                'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages,
-                'PopM': PopM, 'PopW':PopW, 'Area': Area, 'CumulCases': CumulCases,
-                'CumulDead': CumulDead,'CumulHospitalized': CumulHospitalized}
-    return measured
+    measured = {'Cases': Cases, 'Hospitalized': Hospitalized, 'Dead': Dead, 'Cured': Cured, 'Ages': Ages}
+                # 'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages,
+                # 'PopM': PopM, 'PopW':PopW, 'Area': Area, 'CumulCases': CumulCases,
+                # 'CumulDead': CumulDead,'CumulHospitalized': CumulHospitalized}
+    return measured, firstDate, numDays
 
 
-def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Greiz', 'SK Gera', 'SK Jena'), ReduceAges=None, ReduceGender = slice(0, 2), SumDistricts=False, SumAges=True, SumGender=True):
+def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Greiz', 'SK Gera', 'SK Jena'), ReduceAges=None, ReduceGender = None, SumDistricts=False, SumAges=True, SumGender=True):
     # LKs.index('SK Jena'), SK Gera, LK Nordhausen, SK Erfurt, Sk Suhl, LK Weimarer Land, SK Weimar
     # LK Greiz, LK Schmalkalden-Meiningen, LK Eichsfeld, LK Sömmerda, LK Hildburghausen,
     # LK Saale-Orla-Kreis, LK Kyffhäuserkreis, LK Saalfeld-Rudolstadt, LK Ilm-Kreis,
@@ -170,7 +209,8 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
     if CorrectWeekdays:
         AllMeasured['Cases'] = correctWeekdayEffect(AllMeasured['Cases'])
         AllMeasured['Dead'] = correctWeekdayEffect(AllMeasured['Dead'])
-        AllMeasured['Hospitalized'] = correctWeekdayEffect(AllMeasured['Hospitalized'])
+        if 'Hospitalized' in AllMeasured:
+            AllMeasured['Hospitalized'] = correctWeekdayEffect(AllMeasured['Hospitalized'])
 
     if ReduceDistricts == 'Thuringia':
         ReduceDistricts = (352, 342, 167, 332, 399, 278, 403, 82, 230, 55, 251, 102, 221, 122, 223, 110, 263, 80, 240, 330, 3, 276)
@@ -199,7 +239,6 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
     if ReduceGender is None:
         ReduceGender = slice(None,None,None) # means take all
 
-
     sumDims = ()
     if SumGender:
         AllMeasured['Gender'] = ['All Genders']
@@ -216,8 +255,10 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
     AllMeasured['CumulDead'] = np.sum(AllMeasured['CumulDead'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
     AllMeasured['Cases'] = np.sum(AllMeasured['Cases'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
     AllMeasured['Dead'] = np.sum(AllMeasured['Dead'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
-    AllMeasured['Hospitalized'] = np.sum(AllMeasured['Hospitalized'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
-    AllMeasured['Cured'] = np.sum(AllMeasured['Cured'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
+    if 'Hospitalized' in AllMeasured:
+        AllMeasured['Hospitalized'] = np.sum(AllMeasured['Hospitalized'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
+    if 'Cured' in AllMeasured:
+        AllMeasured['Cured'] = np.sum(AllMeasured['Cured'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
     AllMeasured['Population']  = np.sum(AllMeasured['Population'][ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
     return AllMeasured
 
@@ -233,16 +274,110 @@ def correctWeekdayEffect(RawCases):
     RawCases[weeks*7:] /= weekdayLoad[:rest,np.newaxis,np.newaxis,np.newaxis] # attempt to correct for the uneven reporting
     return RawCases
 
-def cumulate(rki_data, df):
+def toDay(timeInMs):
+    return int(timeInMs / (1000 * 60 * 60 * 24))
+
+def getLabels(rki_data, label):
+    try:
+        labels = rki_data[label].unique()
+        labels.sort();
+        labels = labels.tolist()
+    except KeyError:
+        labels = ['BRD']
+    return labels
+
+
+def imputation(rki_data, doPlot=True):
+    AG = 'Altersgruppe'
+    LKs = getLabels(rki_data, 'Landkreis')
+    Ages = getLabels(rki_data, AG)
+    Gender = getLabels(rki_data, 'Geschlecht')
+    day1 = toDay(np.min(rki_data['Refdatum']))
+    dayLast = toDay(np.max(rki_data['Meldedatum']))
+    numDays = dayLast - day1 + 1
+    minDelay=0 # -32 according to RKI limit
+    maxDelay=30 # according to RKI limit
+    numDelay = maxDelay-minDelay
+    delayAxis = np.arange(minDelay, maxDelay)
+    delayCases = np.zeros((numDelay, len(LKs), len(Ages)), dtype=np.float32)
+    delayDeaths = np.zeros((numDelay, len(LKs), len(Ages)), dtype=np.float32)
+    repCases = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    repDead = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+
+    Cases = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    Deaths = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    discardedCases=0
+    discardedDeaths=0
+    for index, row in rki_data.iterrows():  # make a statistic over the cases that were reported with start of desease
+        myLK = LKs.index(row['Landkreis'])
+        myAge = Ages.index(row[AG])
+        myGender = Gender.index(row['Geschlecht'])
+        RefDay = toDay(row['Refdatum'])  # convert to days with an offset
+        MelDay = toDay(row['Meldedatum'])  # convert to days with an offset
+        if (row['IstErkrankungsbeginn'] == 1):
+            delay = MelDay-RefDay - minDelay
+            if delay >= 0 and delay < numDelay:
+                Cases[RefDay - day1] += row['AnzahlFall']
+                Deaths[RefDay - day1] += row['AnzahlTodesfall']
+                delayCases[numDelay-delay-1, myLK, myAge] += row['AnzahlFall']
+                delayDeaths[numDelay-delay-1, myLK, myAge] += row['AnzahlTodesfall']
+            else:
+                discardedCases += row['AnzahlFall']
+                discardedDeaths += row['AnzahlTodesfall']
+                # print('Found delay: '+str(MelDay-RefDay)+', no. cases: '+str(row['AnzahlFall'])+ 'm dead: '+str(row['AnzahlTodesfall'])+' > maxDelay')
+        else:
+            repCases[MelDay-day1,myLK,myAge,myGender] += row['AnzahlFall']
+            repDead[MelDay-day1,myLK,myAge,myGender] += row['AnzahlTodesfall']
+
+    print('Discarded : ' +str(discardedCases) +' cases and '+str(discardedDeaths)+" deaths as the start of desease was outside limits.")
+    # np.sum(delayCases * delayAxis[:,np.newaxis,np.newaxis],(0,1))/np.sum(delayCases,(0,1))
+    # delays=np.sum(delayCases * delayAxis[:,np.newaxis,np.newaxis],(0))/((np.sum(delayCases,(0)))+1e-5)
+    # plt.imshow(delays,aspect='auto')
+    # return delayCases, delayDead, delayAxis
+    minCases = 4
+    normFac = np.sum(delayCases,(0))
+    mask = normFac > minCases
+    meanCasesDelay = np.sum(delayCases * mask, (1,2), keepdims=True) / np.sum(mask)
+    toNorm = mask * delayCases + (~mask) * meanCasesDelay # replace these parts with the mean delay
+    delayCases = toNorm / np.sum(toNorm,(0))
+
+    normFac = np.sum(delayDeaths,(0))
+    mask = normFac > minCases
+    meanDeadDelay = np.sum(delayDeaths * mask, (1,2), keepdims=True) / np.sum(mask)
+    toNorm = mask * delayDeaths + (~mask) * meanDeadDelay # replace these parts with the mean delay
+    delayDeaths = toNorm / np.sum(toNorm,(0))
+
+    ExtraCases = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    ExtraDeaths = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    for t in range(numDays):  # now lets convolve
+        start = np.maximum(0, t-maxDelay)
+        stop = np.minimum(numDays, t-minDelay-1)
+        num = stop-start
+        delayStart = maxDelay-t+start
+        delayStop = delayStart + num
+        ExtraCases[start:stop] += delayCases[delayStart:delayStop][:,:,:,np.newaxis] * repCases[t]
+        ExtraDeaths[start:stop] += delayDeaths[delayStart:delayStop][:,:,:,np.newaxis] * repDead[t]
+
+    if doPlot:
+        plt.figure('Imputation')
+        plt.plot(np.sum(Cases,(1,2,3)))
+        plt.plot(np.sum(ExtraCases,(1,2,3)))
+        plt.plot(np.sum(Deaths, (1, 2, 3)))
+        plt.plot(np.sum(ExtraDeaths, (1, 2, 3)))
+    return Cases, Deaths, ExtraCases, ExtraDeaths
+
+def cumulate(rki_data, df, whichDate = 'Refdatum'):
     # rki_data.keys()  # IdBundesland', 'Bundesland', 'Landkreis', 'Altersgruppe', 'Geschlecht',
     #        'AnzahlFall', 'AnzahlTodesfall', 'ObjectId', 'Meldedatum', 'IdLandkreis'
     # TotalCases = 0;
     # whichDate = 'Refdatum'  # 'Meldedatum'
-    whichDate = 'Meldedatum' # It may be useful to stick to the "Meldedatum", since Refdatum is a mix anyway.
+    # whichDate = 'Meldedatum' # It may be useful to stick to the "Meldedatum", since Refdatum is a mix anyway.
     # Furthermore: Redatum has a missing data problem near the end of the reporting period, so it always goes down!
+    # This needs Imputation and Nowcasting (see RKI Bullletin 17/2020)
+    #
     rki_data = rki_data.sort_values(whichDate)
     day1 = toDay(np.min(rki_data[whichDate]))
-    dayLast = toDay(np.max(rki_data[whichDate]))
+    dayLast = toDay(np.max(rki_data['Meldedatum']))
     toDrop = []
     toDropID = []
     ValidIDs = df['Key'].to_numpy()
@@ -267,19 +402,21 @@ def cumulate(rki_data, df):
     LKs = getLabels(rki_data, 'Landkreis')
     Ages = getLabels(rki_data, 'Altersgruppe')
     Gender = getLabels(rki_data, 'Geschlecht')
+    numDays = dayLast - day1 + 1
+
     CumulSumCases = np.zeros([len(LKs), len(Ages), len(Gender)])
-    AllCumulCases = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
+    AllCumulCases = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
     CumulSumDead = np.zeros([len(LKs), len(Ages), len(Gender)])
-    AllCumulDead = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    AllCases = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    AllDead = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    AllCured = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
+    AllCumulDead = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    AllCases = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    AllDead = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    AllCured = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
     CumulSumCured = np.zeros([len(LKs), len(Ages), len(Gender)])
-    AllCumulCured = np.zeros([dayLast - day1 + 1, len(LKs), len(Ages), len(Gender)])
-    Area = np.zeros(len(LKs))
-    PopW = np.zeros(len(LKs))
-    PopM = np.zeros(len(LKs))
-    allDates = (dayLast - day1 + 1)*['']
+    AllCumulCured = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    # Area = np.zeros(len(LKs))
+    # PopW = np.zeros(len(LKs))
+    # PopM = np.zeros(len(LKs))
+    # allDates = (numDays)*['']
 
     df = df.set_index('Key')
     # IDs = [int(ID) for ID in IDs]
@@ -296,22 +433,29 @@ def cumulate(rki_data, df):
     # TMale = 0; TFemale = 0; # TAge = zeros()
     prevday = -1
     sumTotal = 0
+    firstDate = pd.to_datetime(np.min(rki_data[whichDate]), unit='ms')
+    allDates = pd.date_range(start = firstDate, periods=numDays).map(lambda x: x.strftime('%d.%m.%Y'))
+
+    # mySuppl = df.loc[int(myLKId)]
+    # for myLK in LKs:
+    #     Area[myLK] = mySuppl['Flaeche in km2']
+    #     PopW[myLK] = mySuppl['Bev. W']
+    #     PopM[myLK] = mySuppl['Bev. M']
+
     for index, row in rki_data.iterrows():
         myLKId = row['IdLandkreis']
         myLK = LKs.index(row['Landkreis'])
         if myLKId not in IDs:
             ValueError("Something went wrong! These datasets should have been dropped already.")
-        mySuppl = df.loc[int(myLKId)]
-        Area[myLK] = mySuppl['Flaeche in km2']
-        PopW[myLK] = mySuppl['Bev. W']
-        PopM[myLK] = mySuppl['Bev. M']
+        if whichDate=='Refdatum' and (row['IstErkrankungsbeginn'] == 0):
+            continue # just ignore the
         # datetime = pd.to_datetime(row['Meldedatum'], unit='ms').to_pydatetime()
         # day = toDay(row['Meldedatum']) - day1  # convert to days with an offset
         day = toDay(row[whichDate]) - day1  # convert to days with an offset
         # dayD = datetime.strptime(row['Datenstand'][:10], '%d.%m.%Y') - datetime(1970,1,1)
         # rday = dayD.days - day1  # convert to days with an offset
         # print(day)
-        allDates[day] = pd.to_datetime(row[whichDate], unit='ms').strftime("%d.%m.%Y") #dayfirst=True, yearfirst=False
+        # allDates[day] = pd.to_datetime(row[whichDate], unit='ms').strftime("%d.%m.%Y") #dayfirst=True, yearfirst=False
         myAge = Ages.index(row['Altersgruppe'])
         myG = Gender.index(row['Geschlecht'])
         NeuerFall = row['NeuerFall']  # see the fetch_data.py file for the details of what NeuerFall means.
@@ -330,6 +474,8 @@ def cumulate(rki_data, df):
              AnzahlGenesen = row['AnzahlGenesen']
         else:
             AnzahlGenesen = 0
+        if day > AllCases.shape[0]:
+            continue
         AllCases[day, myLK, myAge, myG] += AnzahlFall
         AllDead[day, myLK, myAge, myG] += AnzahlTodesfall
         AllCured[day, myLK, myAge, myG] += AnzahlGenesen
@@ -347,8 +493,11 @@ def cumulate(rki_data, df):
 
     print("Total Cases: "+ str(sumTotal))
     print("rki_data (at the end): " + str(np.sum(rki_data.to_numpy()[:,5])))
-    measured = {'CumulCases': AllCumulCases, 'CumulDead': AllCumulDead, 'Cases': AllCases, 'Dead': AllDead, 'Cured': AllCured,
-                'IDs': IDs, 'LKs':LKs, 'PopM': PopM, 'PopW': PopW, 'Area': Area, 'Ages':Ages, 'Gender': Gender, 'Dates': allDates}
+    measured = {'CumulCases': AllCumulCases, 'CumulDead': AllCumulDead, 'Cases': AllCases, 'Dead': AllDead, 'Cured': AllCured, 'Ages': Ages}
+    # 'IDs': IDs, 'LKs':LKs, 'PopM': PopM, 'PopW': PopW, 'Area': Area, 'Ages':Ages, 'Gender': Gender, 'Dates': allDates
+    # measured = {'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages,
+    #             'PopM': PopM, 'PopW':PopW, 'Area': Area}
+
     # AllCumulCase, AllCumulDead, AllCumulCured, (IDs, LKs, PopM, PopW, Area, Ages, Gender, allDates)
-    return measured
+    return measured, firstDate, numDays
 
