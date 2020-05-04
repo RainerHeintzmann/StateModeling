@@ -318,12 +318,12 @@ def imputation(rki_data, doPlot=True):
             delay = MelDay-RefDay - minDelay
             if delay >= 0 and delay < numDelay:
                 Cases[RefDay - day1] += row['AnzahlFall']
-                Deaths[RefDay - day1] += row['AnzahlTodesfall']
                 delayCases[numDelay-delay-1, myLK, myAge] += row['AnzahlFall']
-                delayDeaths[numDelay-delay-1, myLK, myAge] += row['AnzahlTodesfall']
+                #delayDeaths[numDelay-delay-1, myLK, myAge] += row['AnzahlTodesfall']
             else:
                 discardedCases += row['AnzahlFall']
-                discardedDeaths += row['AnzahlTodesfall']
+            Deaths[MelDay - day1] += row['AnzahlTodesfall']
+                #discardedDeaths += row['AnzahlTodesfall']
                 # print('Found delay: '+str(MelDay-RefDay)+', no. cases: '+str(row['AnzahlFall'])+ 'm dead: '+str(row['AnzahlTodesfall'])+' > maxDelay')
         else:
             repCases[MelDay-day1,myLK,myAge,myGender] += row['AnzahlFall']
@@ -452,6 +452,7 @@ def cumulate(rki_data, df, whichDate = 'Refdatum'):
         # datetime = pd.to_datetime(row['Meldedatum'], unit='ms').to_pydatetime()
         # day = toDay(row['Meldedatum']) - day1  # convert to days with an offset
         day = toDay(row[whichDate]) - day1  # convert to days with an offset
+        dayM = toDay(row['Meldedatum']) - day1  # convert to days with an offset
         # dayD = datetime.strptime(row['Datenstand'][:10], '%d.%m.%Y') - datetime(1970,1,1)
         # rday = dayD.days - day1  # convert to days with an offset
         # print(day)
@@ -477,7 +478,7 @@ def cumulate(rki_data, df, whichDate = 'Refdatum'):
         if day > AllCases.shape[0]:
             continue
         AllCases[day, myLK, myAge, myG] += AnzahlFall
-        AllDead[day, myLK, myAge, myG] += AnzahlTodesfall
+        AllDead[dayM, myLK, myAge, myG] += AnzahlTodesfall  # Use always the reporting date here.
         AllCured[day, myLK, myAge, myG] += AnzahlGenesen
 
         CumulSumCases[myLK, myAge, myG] += AnzahlFall
