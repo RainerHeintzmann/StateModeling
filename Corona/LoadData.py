@@ -29,8 +29,9 @@ def loadData(filename = None, useThuringia = True, pullData=False):
             #     mobility = list(csv.reader(f, delimiter=","))
             # mobility = np.array(mobility[1:], dtype=np.float)
 
+            AllMeasured, day1, numdays = imputation(data)
             df = pd.read_excel(basePath + r"\Examples\bev_lk.xlsx")  # support information about the population
-            AllMeasured, day1, numdays = cumulate(data, df)
+            # AllMeasured, day1, numdays = cumulate(data, df)
             AllMeasured.update(addOtherData(data, df, day1, numdays))  # adds the supplemental information
             np.save(basePath + r'\Data\AllMeasured', AllMeasured)
 
@@ -251,8 +252,10 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
         AllMeasured['LKs'] = [AllMeasured['Region']]
         sumDims  = sumDims+(-3,)
 
-    AllMeasured['CumulCases'] = np.sum(AllMeasured['CumulCases'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
-    AllMeasured['CumulDead'] = np.sum(AllMeasured['CumulDead'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
+    if 'CumulCases' in AllMeasured:
+        AllMeasured['CumulCases'] = np.sum(AllMeasured['CumulCases'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
+    if 'CumulDead' in AllMeasured:
+        AllMeasured['CumulDead'] = np.sum(AllMeasured['CumulDead'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
     AllMeasured['Cases'] = np.sum(AllMeasured['Cases'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
     AllMeasured['Dead'] = np.sum(AllMeasured['Dead'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
     if 'Hospitalized' in AllMeasured:
@@ -287,12 +290,13 @@ def getLabels(rki_data, label):
     return labels
 
 
-def imputation(rki_data, doPlot=True):
+def imputation(rki_data, doPlot=True, whichDate='Refdatum'):
     AG = 'Altersgruppe'
     LKs = getLabels(rki_data, 'Landkreis')
     Ages = getLabels(rki_data, AG)
     Gender = getLabels(rki_data, 'Geschlecht')
-    day1 = toDay(np.min(rki_data['Refdatum']))
+    day1 = toDay(np.min(rki_data[whichDate]))
+    firstDate = pd.to_datetime(np.min(rki_data[whichDate]), unit='ms')
     dayLast = toDay(np.max(rki_data['Meldedatum']))
     numDays = dayLast - day1 + 1
     minDelay=0 # -32 according to RKI limit
@@ -314,20 +318,36 @@ def imputation(rki_data, doPlot=True):
         myGender = Gender.index(row['Geschlecht'])
         RefDay = toDay(row['Refdatum'])  # convert to days with an offset
         MelDay = toDay(row['Meldedatum'])  # convert to days with an offset
+        NeuerFall = row['NeuerFall']  # see the fetch_data.py file for the details of what NeuerFall means.
+        if NeuerFall == -1:
+            AnzahlFall = 0
+        else:
+            AnzahlFall = row['AnzahlFall']
+        NeuerTodesFall = row['NeuerTodesfall']  # see the fetch_data.py file for the details of what NeuerFall means.
+        if NeuerTodesFall == 0 or NeuerTodesFall == 1: # only new cases are counted. NeuerTodesFall == 0 or
+            AnzahlTodesfall = row['AnzahlTodesfall']
+        else:
+            AnzahlTodesfall = 0
+        NeuGenesen = row['NeuGenesen']  # see the fetch_data.py file for the details of what NeuerFall means.
+        if NeuGenesen == 0 or NeuGenesen == 1: # only newly cured
+             AnzahlGenesen = row['AnzahlGenesen']
+        else:
+            AnzahlGenesen = 0
+
         if (row['IstErkrankungsbeginn'] == 1):
             delay = MelDay-RefDay - minDelay
             if delay >= 0 and delay < numDelay:
-                Cases[RefDay - day1] += row['AnzahlFall']
-                delayCases[numDelay-delay-1, myLK, myAge] += row['AnzahlFall']
+                Cases[RefDay - day1, myLK, myAge, myGender] += AnzahlFall
+                delayCases[numDelay-delay-1, myLK, myAge] += AnzahlFall
                 #delayDeaths[numDelay-delay-1, myLK, myAge] += row['AnzahlTodesfall']
             else:
-                discardedCases += row['AnzahlFall']
-            Deaths[MelDay - day1] += row['AnzahlTodesfall']
+                discardedCases += AnzahlFall
+            Deaths[MelDay - day1, myLK, myAge, myGender] += AnzahlTodesfall
                 #discardedDeaths += row['AnzahlTodesfall']
                 # print('Found delay: '+str(MelDay-RefDay)+', no. cases: '+str(row['AnzahlFall'])+ 'm dead: '+str(row['AnzahlTodesfall'])+' > maxDelay')
         else:
-            repCases[MelDay-day1,myLK,myAge,myGender] += row['AnzahlFall']
-            repDead[MelDay-day1,myLK,myAge,myGender] += row['AnzahlTodesfall']
+            repCases[MelDay-day1,myLK,myAge,myGender] += AnzahlFall
+            repDead[MelDay-day1,myLK,myAge,myGender] += AnzahlTodesfall
 
     print('Discarded : ' +str(discardedCases) +' cases and '+str(discardedDeaths)+" deaths as the start of desease was outside limits.")
     # np.sum(delayCases * delayAxis[:,np.newaxis,np.newaxis],(0,1))/np.sum(delayCases,(0,1))
@@ -341,30 +361,32 @@ def imputation(rki_data, doPlot=True):
     toNorm = mask * delayCases + (~mask) * meanCasesDelay # replace these parts with the mean delay
     delayCases = toNorm / np.sum(toNorm,(0))
 
-    normFac = np.sum(delayDeaths,(0))
-    mask = normFac > minCases
-    meanDeadDelay = np.sum(delayDeaths * mask, (1,2), keepdims=True) / np.sum(mask)
-    toNorm = mask * delayDeaths + (~mask) * meanDeadDelay # replace these parts with the mean delay
-    delayDeaths = toNorm / np.sum(toNorm,(0))
+    # normFac = np.sum(delayDeaths,(0))
+    # mask = normFac > minCases
+    # meanDeadDelay = np.sum(delayDeaths * mask, (1,2), keepdims=True) / np.sum(mask)
+    # toNorm = mask * delayDeaths + (~mask) * meanDeadDelay # replace these parts with the mean delay
+    # delayDeaths = toNorm / np.sum(toNorm,(0))
 
     ExtraCases = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
-    ExtraDeaths = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    # ExtraDeaths = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
     for t in range(numDays):  # now lets convolve
         start = np.maximum(0, t-maxDelay)
         stop = np.minimum(numDays, t-minDelay-1)
         num = stop-start
         delayStart = maxDelay-t+start
         delayStop = delayStart + num
-        ExtraCases[start:stop] += delayCases[delayStart:delayStop][:,:,:,np.newaxis] * repCases[t]
-        ExtraDeaths[start:stop] += delayDeaths[delayStart:delayStop][:,:,:,np.newaxis] * repDead[t]
+        if num > 0:
+            ExtraCases[start:stop] += delayCases[delayStart:delayStop][:,:,:,np.newaxis] * repCases[t]
+            # ExtraDeaths[start:stop] += delayDeaths[delayStart:delayStop][:,:,:,np.newaxis] * repDead[t]
 
     if doPlot:
         plt.figure('Imputation')
         plt.plot(np.sum(Cases,(1,2,3)))
         plt.plot(np.sum(ExtraCases,(1,2,3)))
         plt.plot(np.sum(Deaths, (1, 2, 3)))
-        plt.plot(np.sum(ExtraDeaths, (1, 2, 3)))
-    return Cases, Deaths, ExtraCases, ExtraDeaths
+        # plt.plot(np.sum(ExtraDeaths, (1, 2, 3)))
+    AllMeasured = {'Cases':Cases+ExtraCases, 'Dead':Deaths, 'ExtraCases':ExtraCases} # 'ExtraDeaths':ExtraDeaths
+    return AllMeasured, firstDate, numDays
 
 def cumulate(rki_data, df, whichDate = 'Refdatum'):
     # rki_data.keys()  # IdBundesland', 'Bundesland', 'Landkreis', 'Altersgruppe', 'Geschlecht',
@@ -479,7 +501,7 @@ def cumulate(rki_data, df, whichDate = 'Refdatum'):
             continue
         AllCases[day, myLK, myAge, myG] += AnzahlFall
         AllDead[dayM, myLK, myAge, myG] += AnzahlTodesfall  # Use always the reporting date here.
-        AllCured[day, myLK, myAge, myG] += AnzahlGenesen
+        AllCured[dayM, myLK, myAge, myG] += AnzahlGenesen
 
         CumulSumCases[myLK, myAge, myG] += AnzahlFall
         AllCumulCases[prevday + 1:day + 1, :, :, :] = CumulSumCases
