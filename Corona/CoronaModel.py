@@ -4,11 +4,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 # from datetime import datetime as dt
 
-class CoronaModel(stm.Model):
+class CoronaModel(stm.Model, Tmax = 150):
     def __init__(self, AllMeasured):
         super().__init__(self, maxAxes=4)
         self.AllMeasured = AllMeasured
-        self.Tmax = 150
+        self.Tmax = Tmax
         self.toFit(['r0', 'h', 'aT0', 'aBase', 'I0', 'd', 'rd', 'T0', 'q'])  # 'q',
         # self.xpos = np.arange(0, 100) / 100.0
 
