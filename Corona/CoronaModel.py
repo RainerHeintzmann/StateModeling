@@ -8,7 +8,7 @@ class CoronaModel(stm.Model):
     def __init__(self, AllMeasured):
         super().__init__(self, maxAxes=4)
         self.AllMeasured = AllMeasured
-        self.Tmax = 120
+        self.Tmax = 150
         self.toFit(['r0', 'h', 'aT0', 'aBase', 'I0', 'd', 'rd', 'T0', 'q'])  # 'q',
         # self.xpos = np.arange(0, 100) / 100.0
 
