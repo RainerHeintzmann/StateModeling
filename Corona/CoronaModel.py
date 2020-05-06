@@ -4,8 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 # from datetime import datetime as dt
 
-class CoronaModel(stm.Model, Tmax = 150):
-    def __init__(self, AllMeasured):
+class CoronaModel(stm.Model):
+    def __init__(self, AllMeasured, Tmax = 150):
         super().__init__(self, maxAxes=4)
         self.AllMeasured = AllMeasured
         self.Tmax = Tmax
