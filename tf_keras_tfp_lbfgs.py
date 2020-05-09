@@ -92,7 +92,7 @@ def function_factory(loss, var_list): # , normFactors=None
 
     # now create a function that will be returned by this factory
     @tf.function
-    def f(params_1d):
+    def f(params_1d, FitLossWidget=None):
         """A function that can be used by tfp.optimizer.lbfgs_minimize.
         This function is created by function_factory.
         Args:
@@ -114,8 +114,9 @@ def function_factory(loss, var_list): # , normFactors=None
 
         # print out iteration & loss
         f.iter.assign_add(1)
-        tf.print("Iter:", f.iter, "loss:", loss_value)
-
+        tf.print("Iter:", f.iter, "loss:", loss_value, end='\r')
+        #if FitLossWidget is not None:
+        #    FitLossWidget.value = loss_value
         return loss_value, grads
 
     # store these information as members so we can use them outside the scope

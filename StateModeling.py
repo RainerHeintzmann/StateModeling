@@ -426,6 +426,13 @@ def doCheckScaling(fwd, meas):
     return tf.debugging.check_numerics(fwd, "Detected NaN or Inf in loss function")  # also checks for NaN values during runtime
 
 
+def Loss_SimpleGaussian(fwd, meas, lossDataType=None, checkScaling=False):
+    if lossDataType is None:
+        lossDataType = defaultLossDataType
+    with tf.compat.v1.name_scope('Loss_SimpleGaussian'):
+        #       return tf.reduce_sum(tf.square(fwd-meas))  # version without normalization
+        return tf.reduce_mean(input_tensor=tf.cast(tf.square(fwd - meas), lossDataType))  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
+
 # %% this section defines a number of loss functions. Note that they often need fixed input arguments for measured data and sometimes more parameters
 def Loss_FixedGaussian(fwd, meas, lossDataType=None, checkScaling=False):
     if lossDataType is None:
@@ -437,8 +444,8 @@ def Loss_FixedGaussian(fwd, meas, lossDataType=None, checkScaling=False):
         #       return tf.reduce_sum(tf.square(fwd-meas))  # version without normalization
         if iscomplex(fwd.dtype.as_numpy_dtype):
             mydiff = (fwd - meas)
-            return tf.reduce_mean(input_tensor=tf.cast(mydiff * tf.math.conj(mydiff), lossDataType)) / tf.reduce_mean(
-                input_tensor=tf.cast(meas, lossDataType))  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
+            return tf.reduce_mean(input_tensor=tf.cast(mydiff * tf.math.conj(mydiff), lossDataType)) / \
+                   tf.reduce_mean(input_tensor=tf.cast(meas, lossDataType))  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
         else:
             return tf.reduce_mean(input_tensor=tf.cast(tf.square(fwd - meas), lossDataType)) / tf.reduce_mean(
                 input_tensor=tf.cast(meas, lossDataType))  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
@@ -610,8 +617,11 @@ class Axis:
     def __repr__(self):
         return self.__str__()
 
-    def initZeros(self):
-        return tf.constant(0.0, dtype=CalcFloatStr, shape=self.shape)
+    # def initZeros(self):
+    #     return tf.constant(0.0, dtype=CalcFloatStr, shape=self.shape)
+    #
+    # def initOnes(self):
+    #     return tf.constant(1.0, dtype=CalcFloatStr, shape=self.shape)
 
     def init(self, vals):
         if isNumber(vals):
@@ -629,8 +639,8 @@ class Axis:
             #    raise ValueError('Initialization shape ' + str(vshape) + ' of variable ' + self.name + ' does not match its shape ' + str(self.shape))
             return totensor(vals)
 
-    def initIndividual(self, vals):
-        return tf.variable(vals, dtype=CalcFloatStr)
+    # def initIndividual(self, vals):
+    #     return tf.variable(vals, dtype=CalcFloatStr)
 
     def initGaussian(self, mu=0.0, sig=1.0):
         x = self.ramp()
@@ -646,6 +656,10 @@ class Axis:
         return initVals
 
     def initSigmoid(self, mu=0.0, sig=1.0, offset=0.0):
+        """
+        models a sigmoidal function starting near 0,
+        reaching 0.5 at mu and extending to one at inf, the width being controlled by sigma
+        """
         x = self.ramp()
         mu = totensor(mu);
         sig = totensor(sig)
@@ -697,8 +711,11 @@ def reduceSumTo(State, dst):
 #         self.Axes = {}
 
 class Model:
-    def __init__(self, name='stateModel', maxAxes=4, rand_seed=1234567):
-        self.__version__ = 1.01
+    def __init__(self, name='stateModel', maxAxes=4, lossWeight={}, rand_seed=1234567):
+        self.__version__ = 1.02
+        self.lossWeight = {}
+        for varN in lossWeight:
+            self.lossWeight[varN] = tf.Variable(lossWeight[varN], dtype=defaultTFDataType)
         self.name = name
         self.maxAxes = maxAxes
         self.curAxis = 1
@@ -724,8 +741,17 @@ class Model:
         self.Progression = {}  # dictionary storing the state and resultVal(s) progression (List per Key)
         self.DataDict = {} # used for plotting with bokeh
         self.WidgetDict = {} # used for plotting with bokeh
+        self.FitButton = None
+        self.FitLossWidget = None
         self.plotCumul = False
         np.random.seed(rand_seed)
+
+    def timeAxis(self, entries, queue=False, labels=None):
+        name = 'time'
+        axis = Axis(name, self.maxAxes, self.maxAxes, entries, queue, labels)
+        if name not in self.RegisteredAxes:
+            self.RegisteredAxes.append(axis)
+        return axis
 
     def addAxis(self, name, entries, queue=False, labels=None):
         axis = Axis(name, self.curAxis, self.maxAxes, entries, queue, labels)
@@ -733,8 +759,8 @@ class Model:
         self.Axes[name] = axis
         self.RegisteredAxes.append(axis)
 
-    def initGaussianT0(self, t0, t, sig=2.0):
-        initVals = tf.exp(-(t - t0) ** 2. / (2 * (sig ** 2.)))
+    def initGaussianT0(self, t0, t, sigma=2.0):
+        initVals = tf.exp(-(t - t0) ** 2. / (2 * (sigma ** 2.)))
         return initVals
 
     def initDeltaT0(self, t0, t, sig=2.0):
@@ -855,7 +881,6 @@ class Model:
             newval = newval.new
             idx = idx.value
         res= self.assignNewVar(varname, newval, relval, idx)
-
         if showResults is not None:
             # self.simulate('measured')
             showResults()
@@ -872,6 +897,7 @@ class Model:
             oldval.flat[idx] = newval
             newval = oldval
         self.rawVar[varname].assign(newval)
+        return self.rawVar[varname]
 
     def addRate(self, fromState, toState, rate, queueSrc=None, queueDst=None, name=None, hasTime=False, hoSumDims=None, resultTransfer=None):  # S ==> I[0]
         if queueSrc is not None:
@@ -1075,8 +1101,8 @@ class Model:
                 State[varN] = var()
         return State
 
-    def traceModel(self, Tmax, verbose=True):
-        print("tracing traceModel")
+    def traceModel(self, Tmax, verbose=False):
+        # print("tracing traceModel")
         # tf.print("running traceModel")
         State = self.State.copy()  # to ensure that self is not overwritten
         State = self.evalLambdas(State)
@@ -1092,7 +1118,7 @@ class Model:
             State = newState
         print()
         self.cleanupResults()
-        print(" .. done\n")
+        #print(" .. done")
         return State
 
     def addResult(self, name, anEquation):
@@ -1109,8 +1135,8 @@ class Model:
     #         lambda x: tf.reduce_sum(tf.math.squared_difference(x, self.predicted)), x)
 
     @tf.function
-    def doBuildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10, oparam={"noiseModel": "Gaussian"}):
-        print("tracing doBuildModel")
+    def doBuildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10, oparam={"noiseModel": "SimpleGaussian"}):
+        #print("tracing doBuildModel")
         # tf.print("running doBuildModel")
         finalState = self.traceModel(Tmax)
         Loss = None
@@ -1125,17 +1151,28 @@ class Model:
                 raise ValueError('Predicted and measured data have different shape. Try introducing np.newaxis into measured data.')
             self.ResultVals[predictionName] = predicted  # .numpy()
             myFitEnd = min(measured.shape[0], predicted.shape[0], FitEnd)
-            if "noiseModel" in oparam:
-                if oparam["noiseModel"] == "Gaussian":
-                    thisLoss = Loss_FixedGaussian(predicted[FitStart:myFitEnd], measured[FitStart:myFitEnd])
-                elif oparam["noiseModel"] == "ScaledGaussian":
-                    thisLoss = Loss_ScaledGaussianReadNoise(predicted[FitStart:myFitEnd], measured[FitStart:myFitEnd])
-                elif oparam["noiseModel"] == "Poisson":
-                    thisLoss = Loss_Poisson2(predicted[FitStart:myFitEnd], measured[FitStart:myFitEnd])
-                else:
-                    ValueError("Unknown noise model: " + oparam["noiseModel"])
+            if "noiseModel" not in oparam:
+                noiseModel ="SimpleGaussian"
             else:
-                thisLoss = Loss_FixedGaussian(predicted[FitStart:myFitEnd], measured[FitStart:myFitEnd])
+                noiseModel = oparam["noiseModel"]
+            if predictionName in self.lossWeight:
+                fwd = tf.squeeze(self.lossWeight[predictionName] * predicted[FitStart:myFitEnd])
+                meas = tf.squeeze(self.lossWeight[predictionName] * measured[FitStart:myFitEnd])
+            else:
+                fwd = tf.squeeze(predicted[FitStart:myFitEnd])
+                meas = tf.squeeze(measured[FitStart:myFitEnd])
+            if noiseModel == "SimpleGaussian":
+                # resid = (fwd - meas)
+                # thisLoss = tf.reduce_mean(tf.square(resid))
+                thisLoss = Loss_SimpleGaussian(fwd, meas)
+            elif noiseModel == "Gaussian":
+                thisLoss = Loss_FixedGaussian(fwd, meas)
+            elif noiseModel == "ScaledGaussian":
+                thisLoss = Loss_ScaledGaussianReadNoise(fwd, meas)
+            elif noiseModel == "Poisson":
+                thisLoss = Loss_Poisson2(fwd, meas)
+            else:
+                ValueError("Unknown noise model: " + noiseModel)
             if Loss is None:
                 Loss = thisLoss
             else:
@@ -1205,6 +1242,15 @@ class Model:
     def fit(self, data_dict, Tmax, NIter=50, otype='L-BFGS', oparam={"learning_rate": None}, verbose=False, lossScale=None):
         # if "normFac" not in oparam:
         #     oparam["normFac"] = "max"
+        if self.FitButton is not None:
+            self.FitButton.style.button_color = 'red'
+        for avar in self.FitVars:
+            if avar not in self.Var:
+                raise ValueError('Variable to fit: '+avar+' was not found in defined variables in this model.')
+        for aweight in self.lossWeight:
+            if aweight not in data_dict:
+                print('WARNING: '+aweight+' was defined as a weight, but no dataset with this name exists! Ignoring entry.')
+
         if "learning_rate" not in oparam:
             oparam["learning_rate"] = None
 
@@ -1230,10 +1276,20 @@ class Model:
         opt = optimizer(loss_fnOnly, otype=otype, oparam=oparam, NIter=NIter, var_list=FitVars, verbose=verbose)
         opt.optName = otype  # just to store this
         if NIter > 0:
-            res = Optimize(opt, loss=loss_fnOnly, lossScale=lossScale)  # self.ResultVals.items()
+            if self.FitLossWidget is not None:
+                with self.FitLossWidget: # redirect the output
+                    self.FitLossWidget.clear_output()
+                    res = Optimize(opt, loss=loss_fnOnly, lossScale=lossScale)  # self.ResultVals.items()
+            else:
+                res = Optimize(opt, loss=loss_fnOnly, lossScale=lossScale)  # self.ResultVals.items()
         else:
             res = loss_fnOnly()
             print("Loss is: " + str(res.numpy()))
+            if self.FitLossWidget is not None:
+                self.FitLossWidget.clear_output()
+                with self.FitLossWidget:
+                    print(str(res.numpy()))
+
         self.ResultVals = result_dict  # stores how to calculate results
         ResultVals = result_dict()  # calculates the results
         self.Progression = progression_dict
@@ -1248,6 +1304,8 @@ class Model:
         #     self.Progression[varN] = Progression[varN]  # res[n]
         for varN in ResultVals:
             self.FitResultVals[varN] = ResultVals[varN]  # .numpy() # res[n]
+        if self.FitButton is not None:
+            self.FitButton.style.button_color = 'green'
         return self.FitResultVars, self.FitResultVals
 
     def findAxis(self, d):
@@ -1391,7 +1449,7 @@ class Model:
 
     def showResultsBokeh(self, title='Results', xlabel='time step', Scale=False, xlim=None, ylim=None,
                          ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0, logY=True,
-                         styles = ['dashed','solid','dotted','dotdash','dashdot'], figsize=None, subPlot=None):
+                         styles = ['dashed','solid','dotted','dotdash','dashdot'], figsize=None, subPlot=None, dictToPlot=None, oneMinus=None):
         from bokeh.plotting import figure # output_file,
         from bokeh.palettes import Dark2_5 as palette
         from bokeh.io import push_notebook, show
@@ -1416,6 +1474,23 @@ class Model:
         else:
             FigureIdx = '_figure_' + subPlot
             FigureTitle = title + '_' + subPlot
+        if Scale is False:
+            Scale = None
+
+        if dictToPlot is None:
+            dictMeas = self.Measurements
+            dictFits = self.FitResultVals
+        else:
+            dictMeas = {}
+            if callable(dictToPlot):
+                dictFits = dictToPlot()
+            else:
+                dictFits = dictToPlot
+        if oneMinus is not None:
+            if isinstance(oneMinus, str):
+                oneMinus = [oneMinus]
+        else:
+            oneMinus=[]
 
         self.DataDict['_title'] = FigureTitle
         newFigure=False
@@ -1435,7 +1510,7 @@ class Model:
             #    self.resultFigure.yaxis.axis_label = ylabel
 
         colors = itertools.cycle(palette)
-        for resN, dict in self.Measurements.items():
+        for resN, dict in dictMeas.items():
             style = styles[n % len(styles)]
             for dictN, toPlot in dict.items():
                 if (subPlot is not None) and (dictN not in subPlot):
@@ -1443,7 +1518,7 @@ class Model:
                 toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
                 toPlot = np.squeeze(toPlot)
                 if Scale is not None:
-                    toPlot *= Scale
+                    toPlot = toPlot * Scale
                 # r.data_source.data['y'] = toPlot  # styles[n]
                 if toPlot.ndim > 1:
                     colors = itertools.cycle(palette)
@@ -1453,16 +1528,23 @@ class Model:
                 else:
                     color = next(colors)
                     x = self.getDates(Dates, toPlot)
+                    if labels == [] or labels == [[]]:
+                        labels = [[dictN]]
                     self.plotB(self.DataDict[FigureIdx], x, toPlot, name=resN + "_" + dictN + "_" + labels[0][0], withDots=True, color=color, line_dash=style)
             n += 1
-        for dictN, toPlot in self.FitResultVals.items():
+        for dictN, toPlot in dictFits.items():
             if (subPlot is not None) and (dictN not in subPlot):
                 continue
+            if callable(toPlot):  # the Var dictionary contains callable variables
+                toPlot = toPlot()
             style = styles[n % len(styles)]
             toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
             toPlot = np.squeeze(toPlot)
+            if dictN in oneMinus:
+                toPlot = 1.0 - toPlot
+                dictN = '1-'+dictN
             if Scale is not None:
-                toPlot *= Scale
+                toPlot = toPlot * Scale
             if toPlot.ndim > 1:
                 colors = itertools.cycle(palette)
                 for d, color in zip(range(toPlot.shape[1]), colors):
@@ -1479,7 +1561,10 @@ class Model:
         # push_notebook()
         if newFigure:
             #print('showing figure')
-            self.DataDict[FigureIdx + '_notebook_handle'] = show(self.DataDict[FigureIdx], notebook_handle=True)
+            try:
+                self.DataDict[FigureIdx + '_notebook_handle'] = show(self.DataDict[FigureIdx], notebook_handle=True)
+            except:
+                print('Warnings: Figures are not showing, probably due to being called from console')
         else:
             #print('pushing notebook')
             push_notebook(handle=self.DataDict[FigureIdx + '_notebook_handle'])
@@ -1581,7 +1666,7 @@ class Model:
                 toPlot = Progression[varN]  # np.squeeze(
                 myLegend = varN
                 if np.squeeze(toPlot).ndim > 1:
-                    if dims2d is not None:
+                    if dims2d is not None and len(self.Axes)>1:
                         plt.figure(10 + N)
                         plt.ylabel(xlabel)
                         N += 1
@@ -1651,7 +1736,10 @@ class Model:
             self.FitVars.remove(name)
 
     def assignToWidget(self, idx, varN = None, widget=None):
-        val = np.squeeze(self.Var[varN]())[idx['new']]
+        if varN in self.Var:
+            val = np.squeeze(self.Var[varN]())[idx['new']]
+        else:
+            val = np.squeeze(self.lossWeight[varN]())[idx['new']]
         self.adjustMinMax(widget, val)
         widget.value = val
         #print('assignToWidget, varN: '+varN+', idx='+str(idx['new'])+', val:'+str(val)+', widget: '+widget.description)
@@ -1692,8 +1780,30 @@ class Model:
         else:
             mymin = 0.0
             mymax = myval*3.0
-            valueWidget = widgets.FloatSlider(value=myval, base=10, min=mymin, max=mymax)
+            valueWidget = widgets.FloatSlider(value=myval, min=mymin, max=mymax)
         return valueWidget
+
+    def updateWidgetFromDropDict(self, idx, dict, dropWidget, valWidget):
+        dictKey = dropWidget.options[dropWidget.value][0]
+        valWidget.value = dict[dictKey].numpy()
+
+    def assignToDictVal(self, newval, dict, dropWidget):
+        dictKey = dropWidget.options[dropWidget.value][0]
+        dict[dictKey].assign(newval.new)
+
+    def dictWidget(self, dict, description):
+        from ipywidgets import widgets
+        import functools
+        options = [(d, n) for d, n in zip(dict.keys(), range(len(dict.keys())))]
+        dropWidget = widgets.Dropdown(options=options, indent=False, value=0, description=description)
+        valueWidget = widgets.FloatText(value=dict[options[0][0]].numpy())
+        # valueWidget = widgets.HBox((inFitWidget,valueWidget))
+        dropWidget.observe(functools.partial(self.updateWidgetFromDropDict, dict=dict, dropWidget=dropWidget, valWidget=valueWidget), names='value')
+        # showResults= showResults
+        valueWidget.observe(functools.partial(self.assignToDictVal, dict=dict, dropWidget=dropWidget), names='value')
+        widget = widgets.HBox((dropWidget, valueWidget))
+        # self.WidgetDict[varN] = (valueWidget, dropWidget)
+        return widget
 
     def getGUI(self, fitVars = None, nx=3, showResults=None, doFit=None):
         from ipywidgets import widgets, Layout
@@ -1770,11 +1880,20 @@ class Model:
         ResetWidget.observe(self.updateAllWidgets)
         lastRow.append(ResetWidget)
         if doFit is not None:
-            nIterWidget = widgets.IntSlider(value=100, description='NIter')
             doFitWidget = widgets.Button(description='Fit')
+            self.FitButton = doFitWidget
             doFitWidget.on_click(lambda b: self.updateAllWidgets(doFit(NIter=nIterWidget.value)))
             lastRow.append(doFitWidget)
+            nIterWidget = widgets.IntText(value=100, description='NIter:')
             lastRow.append(nIterWidget)
+            weightWidget = self.dictWidget(self.lossWeight, description='Weights:')
+            lastRow.append(weightWidget)
+            lossWidget = widgets.Output(layout={'border': '1px solid black'}, description='Loss:')
+            self.FitLossWidget = lossWidget
+            lastRow.append(lossWidget)
+        else:
+            self.FitButton = None
+            self.FitLossWidget = None
         widget = widgets.HBox(lastRow)
         display(widget)
         if showResults is not None:
