@@ -4,7 +4,7 @@ import numpy as np
 import StateModeling as stm
 import matplotlib.pyplot as plt
 
-def loadData(filename = None, useThuringia = True, pullData=False):
+def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None):
 
     if useThuringia:
         if filename is None:
@@ -13,8 +13,11 @@ def loadData(filename = None, useThuringia = True, pullData=False):
         # Thuringia = pd.read_excel(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\COVID-19 Linelist 2020_04_06.xlsx")
         Thuringia = pd.read_excel(basePath + '\\'+ filename)
         basePath = r"C:\Users\pi96doc\Documents\Programming\PythonScripts\StateModeling"
-        AllMeasured, day1, numdays = binThuringia(Thuringia)
+        Thuringia = stripQuotesFromAxes(Thuringia)
+        AllMeasured, day1, numdays = binThuringia(Thuringia, lastDate=lastDate)
+        # AllMeasured, day1, numdays = imputation(Thuringia)
         AllMeasured['Region'] = "Thuringia"
+
         df = pd.read_excel(basePath + r"\Examples\bev_lk.xlsx")  # support information about the population
         AllMeasured.update(addOtherData(Thuringia, df, day1, numdays)) # adds the supplemental information
     else:
@@ -96,23 +99,27 @@ def addOtherData(data, df, day1, numDays):
                 'PopM': PopM, 'PopW':PopW, 'Area': Area}
     return measured
 
-def binThuringia(data):
+def binThuringia(data, lastDate=None):
     #import locale
     #locale.setlocale(locale.LC_ALL, 'de_DE')
     whichDate = 'Erkrankungsbeginn'
     # data = data.sort_values(whichDate)
-    data = stripQuotesFromAxes(data)
     if 'AbsonderungEnde' in data.keys():
         AbsonderungEnde = 'AbsonderungEnde'
     else:
         AbsonderungEnde = 'AbsonderungBis'
-    # replace empty Erkrankungsbeginn with Meldedatum
-    data['Erkrankungsbeginn'] = data[['Erkrankungsbeginn', 'Meldedatum']].apply(lambda x: x[1] if x[0]=="" else x[0], axis=1)
-    data['AbsonderungEnde'] = pd.to_datetime(data[AbsonderungEnde].str.replace('"', '').str[:10], dayfirst=True)
-    data['Meldedatum'] = pd.to_datetime(data['Meldedatum'])
-    data['Erkrankungsbeginn'] = pd.to_datetime(data['Erkrankungsbeginn'])
-    data['AbsonderungVon'] = pd.to_datetime(data['AbsonderungVon'])
-    data['VerstorbenDatum'] = pd.to_datetime(data['VerstorbenDatum'])
+    # ass a field IstErkrankungsbeginn
+    data['IstErkrankungsbeginn'] = data[['Erkrankungsbeginn']].apply(lambda x: 0 if x[0]=="" else 1, axis=1)
+    # replace empty Erkrankungsbeginn with Meldedatum for empty data
+    data['Refdatum'] = data[['Erkrankungsbeginn', 'Meldedatum']].apply(lambda x: x[1] if x[0]=="" else x[0], axis=1)
+
+    # data['AbsonderungEnde'] = pd.to_datetime(data[AbsonderungEnde].str.replace('"', '').str[:10], dayfirst=True)
+    data['Meldedatum'] = pd.to_datetime(data['Meldedatum'], dayfirst=True)
+    data['Erkrankungsbeginn'] = pd.to_datetime(data['Erkrankungsbeginn'], dayfirst=True)
+    data['Refdatum'] = pd.to_datetime(data['Refdatum'], dayfirst=True)
+    data['AbsonderungVon'] = pd.to_datetime(data['AbsonderungVon'], dayfirst=True)
+    data[AbsonderungEnde] = pd.to_datetime(data[AbsonderungEnde], dayfirst=True)
+    data['VerstorbenDatum'] = pd.to_datetime(data['VerstorbenDatum'], dayfirst=True)
     data['AlterBerechnet'] = pd.to_numeric(data['AlterBerechnet'])
     data['InterneRef'] = pd.to_numeric(data['InterneRef'])
     day1 = np.min(data[whichDate])
@@ -120,8 +127,11 @@ def binThuringia(data):
     dayLast0 = np.max(data['Meldedatum'] - day1)
     dayLast1 = np.max(data['Erkrankungsbeginn'] - day1)
     dayLast2 = np.max(data['VerstorbenDatum'] - day1)
-    dayLast3 = np.max(data['AbsonderungEnde'] - day1)
+    # dayLast3 = np.max(data[AbsonderungEnde] - day1)
     dayLast = np.max([dayLast0, dayLast1, dayLast2])  # , dayLast3 : AbsonderungEnde is not used to fill in data, as it is often beyond the current date
+    if lastDate is not None:
+        lastDate = pd.to_datetime(lastDate, dayfirst=True)
+        dayLast = np.min([lastDate - day1, dayLast])
     numDays = dayLast.days + 1
     minAge = np.min(data[data['AlterBerechnet'] > 0]['AlterBerechnet'])
     maxAge = np.max(data[data['AlterBerechnet'] > 0]['AlterBerechnet'])
@@ -135,30 +145,49 @@ def binThuringia(data):
     minGe = np.min(data['GeschlechtID']); maxGe = np.max(data['GeschlechtID'])
     numGender = maxGe + 1
     Cases = np.zeros([numDays, numLK, numAge, numGender])
+    ExtraRefCases = np.zeros([numDays, numLK, numAge, numGender])
     Hospitalized = np.zeros([numDays, numLK, numAge, numGender])
+    ExtraRefHospitalized = np.zeros([numDays, numLK, numAge, numGender])
     Cured = np.zeros([numDays, numLK, numAge, numGender])
+    ExtraRefCured = np.zeros([numDays, numLK, numAge, numGender])
     Dead = np.zeros([numDays, numLK, numAge, numGender])
+    ExtraRefDead = np.zeros([numDays, numLK, numAge, numGender])
     # data = data.set_index('InterneRef') # to make it unique
     for index, row in data.iterrows():
         myLK = int(row['LandkreisID'])
         myday = (row[whichDate] - day1).days
-        if myday is np.nan:
-            myday = (row['Meldedatum']-day1).days
+        myRefday = (row['Meldedatum'] - day1).days
+        #if myday is np.nan:
+        #    myday = (row['Meldedatum']-day1).days
         myAge = row['AlterBerechnet']
         myGender = row['GeschlechtID']
         if myAge < 0:
             print('unknown age.' + str(myAge)+'... skipping ...')
             continue
-        Cases[myday, myLK, myAge, myGender] += 1.0
-        myCuredDay = (row['AbsonderungEnde'] - day1).days
-        if myCuredDay is not np.nan and myCuredDay < Cured.shape[0]:
+        if row['IstErkrankungsbeginn'] and myday is not np.nan and myday < dayLast.days:
+            Cases[myday, myLK, myAge, myGender] += 1.0
+        else:
+            ExtraRefCases[myRefday, myLK, myAge, myGender] += 1.0
+        myCuredDay = (row[AbsonderungEnde] - day1).days
+        if myCuredDay is not np.nan and myCuredDay < Cured.shape[0] and myCuredDay < dayLast.days:
             Cured[myCuredDay, myLK, myAge, myGender] += 1
-        if row['HospitalisierungStatus'] == "Ja":
-            Hospitalized[myday, myLK, myAge, myGender] += 1
-        myDeadDay = (row['VerstorbenDatum'] - day1).days
-        if myDeadDay is not np.nan:
-            Dead[myDeadDay, myLK, myAge, myGender] += 1
+        else:
+            ExtraRefCured[myRefday, myLK, myAge, myGender] += 1
 
+        hospitalDay = (row['AbsonderungVon'] - day1).days
+        if row['HospitalisierungStatus'] == "Ja":
+            if hospitalDay is not np.nan and hospitalDay < dayLast.days:
+                Hospitalized[hospitalDay, myLK, myAge, myGender] += 1
+            else:
+                ExtraRefHospitalized[myRefday, myLK, myAge, myGender] += 1.0
+        myDeadDay = (row['VerstorbenDatum'] - day1).days
+        if row['VerstorbenStatus'] == 'Ja':
+            if myDeadDay is not np.nan and myDeadDay < dayLast.days:
+                Dead[myDeadDay, myLK, myAge, myGender] += 1
+            else:
+                ExtraRefDead[myRefday, myLK, myAge, myGender] += 1.0
+
+    print('Missed Cases: '+str(np.sum(ExtraRefCases))+', Hospitalized: '+str(np.sum(ExtraRefHospitalized))+', Cured: '+str(np.sum(ExtraRefCured))+', deaths: '+str(np.sum(ExtraRefDead)))
 
     # Dates = pd.date_range(start = day1, periods=numDays).map(lambda x: x.strftime('%d.%m.%Y'))
 
@@ -195,7 +224,11 @@ def binThuringia(data):
     CumulDead = np.cumsum(Dead,0)
     CumulHospitalized = np.cumsum(Hospitalized,0)
 
-    measured = {'Cases': Cases, 'Hospitalized': Hospitalized, 'Dead': Dead, 'Cured': Cured, 'Ages': Ages}
+    measured = {'Cases': Cases, 'ExtraReportedCases': ExtraRefCases,
+                'Hospitalized': Hospitalized, 'ExtraReportedHospitalized': ExtraRefHospitalized,
+                'Dead': Dead, 'ExtraReportedDead': ExtraRefDead,
+                'Cured': Cured, 'ExtraReportedCured': ExtraRefCured,
+                'Ages': Ages}
                 # 'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages,
                 # 'PopM': PopM, 'PopW':PopW, 'Area': Area, 'CumulCases': CumulCases,
                 # 'CumulDead': CumulDead,'CumulHospitalized': CumulHospitalized}
@@ -313,6 +346,8 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True):
     Deaths = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
     discardedCases=0
     discardedDeaths=0
+    if 'VerstorbenDatum' in rki_data.keys():
+        useRefDead=False
     if useRefDead:
         print('Using reference date for deaths.')
     else:
@@ -353,7 +388,11 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True):
                     discardedDeaths += row['AnzahlTodesfall']
                     # print('Found delay: '+str(MelDay-RefDay)+', no. cases: '+str(row['AnzahlFall'])+ 'm dead: '+str(row['AnzahlTodesfall'])+' > maxDelay')
             if not useRefDead:
-                Deaths[MelDay - day1, myLK, myAge, myGender] += AnzahlTodesfall
+                if 'VerstorbenDatum' in row.keys():
+                    DeadDay = toDay(row['VerstorbenDatum'])
+                else:
+                    DeadDay = MelDay
+                Deaths[DeadDay - day1, myLK, myAge, myGender] += AnzahlTodesfall
         else:
             repCases[MelDay-day1,myLK,myAge,myGender] += AnzahlFall
             repDead[MelDay-day1,myLK,myAge,myGender] += AnzahlTodesfall

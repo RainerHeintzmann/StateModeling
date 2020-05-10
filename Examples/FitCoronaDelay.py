@@ -12,11 +12,11 @@ from bokeh.io import push_notebook, show, output_notebook
 import ipywidgets as widgets
 from ipywidgets import interact, interact_manual
 
-if True:
+if False:
     AllMeasured = loadData(useThuringia = False, pullData=False)
     AllMeasured = preprocessData(AllMeasured, ReduceDistricts=None, SumDistricts=True, SumAges=True, SumGender=True)
 else:
-    AllMeasured = loadData(r"COVID-19 Linelist 2020_04_27.xlsx", useThuringia = True, pullData=False)
+    AllMeasured = loadData(r"COVID-19 Linelist 2020_05_09.xlsx", useThuringia = True, pullData=False, lastDate='09.05.2020')
     # ExampleRegions = ['SK Jena', 'LK Greiz', 'SK Gera'] # 'SK Gera',
     # AllMeasured = preprocessData(AllMeasured, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
     AllMeasured = preprocessData(AllMeasured, ReduceDistricts=None, SumDistricts=True, SumAges=True, SumGender=True)
@@ -24,7 +24,7 @@ else:
 M = CoronaDelayModel(AllMeasured, Tmax = 150, lossWeight={'cases':1.0, 'deaths': 10.0})
 
 tf.config.experimental_run_functions_eagerly(True)
-M.doFit(10)
+M.doFit(0)
 M.showStates(MinusOne=['S'])
 M.DataDict={}
 g = M.getGUI(showResults=M.showSimRes, doFit=M.doFit)

@@ -1135,7 +1135,7 @@ class Model:
     #         lambda x: tf.reduce_sum(tf.math.squared_difference(x, self.predicted)), x)
 
     @tf.function
-    def doBuildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10, oparam={"noiseModel": "SimpleGaussian"}):
+    def doBuildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10, oparam={"noiseModel": "Gaussian"}):
         #print("tracing doBuildModel")
         # tf.print("running doBuildModel")
         finalState = self.traceModel(Tmax)
@@ -1152,7 +1152,7 @@ class Model:
             self.ResultVals[predictionName] = predicted  # .numpy()
             myFitEnd = min(measured.shape[0], predicted.shape[0], FitEnd)
             if "noiseModel" not in oparam:
-                noiseModel ="SimpleGaussian"
+                noiseModel ="Gaussian"
             else:
                 noiseModel = oparam["noiseModel"]
             if predictionName in self.lossWeight:
@@ -1161,6 +1161,8 @@ class Model:
             else:
                 fwd = tf.squeeze(predicted[FitStart:myFitEnd])
                 meas = tf.squeeze(measured[FitStart:myFitEnd])
+            if fwd.shape != meas.shape:
+                raise ValueError('Shapes of simulated data and measured data have to agree.')
             if noiseModel == "SimpleGaussian":
                 # resid = (fwd - meas)
                 # thisLoss = tf.reduce_mean(tf.square(resid))
@@ -1811,8 +1813,10 @@ class Model:
         import functools
 
         item_layout = Layout(display='flex', flex_flow='row', justify_content='space-between')
+        small_item_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', width='20%')
         box_layout = Layout(display='flex', flex_flow='column', border='solid 2px', align_items='stretch', width='40%')
         box2_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', border='solid 2px', align_items='stretch', width='40%')
+        output_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', border='solid 2px', align_items='stretch', width='300px')
         tickLayout = Layout(display='flex', width='30%')
         if fitVars is None:
             fitVars = self.FitVars
@@ -1882,13 +1886,13 @@ class Model:
         if doFit is not None:
             doFitWidget = widgets.Button(description='Fit')
             self.FitButton = doFitWidget
-            doFitWidget.on_click(lambda b: self.updateAllWidgets(doFit(NIter=nIterWidget.value)))
             lastRow.append(doFitWidget)
-            nIterWidget = widgets.IntText(value=100, description='NIter:')
+            nIterWidget = widgets.IntText(value=100, description='NIter:', layout=small_item_layout)
+            doFitWidget.on_click(lambda b: self.updateAllWidgets(doFit(NIter=nIterWidget.value)))
             lastRow.append(nIterWidget)
             weightWidget = self.dictWidget(self.lossWeight, description='Weights:')
             lastRow.append(weightWidget)
-            lossWidget = widgets.Output(layout={'border': '1px solid black'}, description='Loss:')
+            lossWidget = widgets.Output(description='Loss:', layout=output_layout)
             self.FitLossWidget = lossWidget
             lastRow.append(lossWidget)
         else:

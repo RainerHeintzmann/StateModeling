@@ -15,18 +15,24 @@ class CoronaDelayModel(stm.Model):
                      'death_rate','death_time','death_sigma',
                     'detect_t0','detect','detect_sigma',
                     'infect_first','infect_first_time'])  # 'infect_first','infect_first_time'
+        if "Hospitalized" in AllMeasured.keys():
+            self.FitVars.extend(['hospital_t0', 'hospital', 'hospital_sigma'])
 
         # self.toFit(['R','infect_first','infect_first_time', 'death_rate','death_time','detect_t0','detect','detect_sigma'])  #
         RInit = 1.3
         firstInf = np.nonzero(AllMeasured['Cases']>0)[0][0]
         infective_time_init = 3.0 # day in 'Disease Progression' of most probably infecting someone else
-        infective_sigma_init = 1.0 # spread in 'Disease Progression' of most probably infecting someone else
+        infective_sigma_init = 1.8 # spread in 'Disease Progression' of most probably infecting someone else
         death_rate_init = 0.004 # rate of death
-        death_time_init = 17.0 # day of 'Disease Progression' when death is most probable
-        death_sigma_init = 1.0
+        death_time_init = 16.2 # day of 'Disease Progression' when death is most probable
+        death_sigma_init = 1.8
         detect_t0Init = 5.0 # time when disease is typically detected
+        detect_sigmaInit = 1.8
         detect_Init = 0.1 # chance that disease is finally detected (t-> inf)
-        detect_sigmaInit = 1.0
+
+        hospital_t0Init = 5.0 # time when disease is typically detected
+        hospital_sigmaInit = 1.0
+        hospitalization_Init = 0.1 # chance that disease is finally detected (t-> inf)
 
         infect_first_time_init = (1.0 + firstInf).astype(np.float32) # AllMeasured['Dates'].to_list().index('21.02.2020')+0.2   # day of first infection in the district
         infect_first_init = (AllMeasured['Cases'][firstInf] / self.PopSum/detect_Init).astype(np.float32) # Amount of first infection  (1.0 would be 5e-7 )
@@ -72,6 +78,14 @@ class CoronaDelayModel(stm.Model):
         measured = np.squeeze(AllMeasured['Cases']) / self.PopSum
         measuredDead = np.squeeze(AllMeasured['Dead']) / self.PopSum
         self.FitDict = {'cases': measured, 'deaths': measuredDead}
+
+        if "Hospitalized" in AllMeasured.keys():
+            hospital_t0 = self.newVariables({'hospital_t0': hospital_t0Init}, forcePos=False)  # time when disease is typically detected
+            hospital_sigma = self.newVariables({'hospital_sigma': hospital_sigmaInit})  # time when disease (New cases!) is typically detected
+            hospital = self.newVariables({'hospital': hospitalization_Init})  # rate of final detection
+            hospitalization = lambda: hospital() * self.Axes['Disease Progression'].initGaussian(hospital_t0(), hospital_sigma())  # new cases is an event. Therefore Gaussian
+            self.addResult('hospitalization', lambda State: tf.reduce_sum(State['I'] * hospitalization()))  # Only the new cases
+            self.FitDict['hospitalization'] = np.squeeze(AllMeasured['Hospitalized']/ self.PopSum)
         # self.FitDict = {'deaths': measuredDead}
 
     def doFit(self, NIter=0):
@@ -84,6 +98,10 @@ class CoronaDelayModel(stm.Model):
         p=self.showResultsBokeh(title = self.AllMeasured['Region'], Scale=self.PopSum, ylabel='Population',
                       xlim=xlim, subPlot='cases',
                       legendPlacement = 'upper right', figsize=[10,5], Dates=self.AllMeasured['Dates'])
+        if 'Hospitalized' in self.AllMeasured:
+            p=self.showResultsBokeh(title=self.AllMeasured['Region'], Scale=self.PopSum, ylabel='Population',
+                          xlim=xlim, subPlot='hospitalization',
+                          legendPlacement='upper right', figsize=[10,5], Dates=self.AllMeasured['Dates'])
         p=self.showResultsBokeh(title=self.AllMeasured['Region'], Scale=self.PopSum, ylabel='Population',
                       xlim=xlim, subPlot='deaths',
                       legendPlacement='upper right', figsize=[10,5], Dates=self.AllMeasured['Dates'])
