@@ -25,13 +25,13 @@ class CoronaDelayModel(stm.Model):
         infective_sigma_init = 1.8 # spread in 'Disease Progression' of most probably infecting someone else
         death_rate_init = 0.004 # rate of death
         death_time_init = 16.2 # day of 'Disease Progression' when death is most probable
-        death_sigma_init = 1.8
+        death_sigma_init = 2.8
         detect_t0Init = 5.0 # time when disease is typically detected
-        detect_sigmaInit = 1.8
+        detect_sigmaInit = 2.8
         detect_Init = 0.1 # chance that disease is finally detected (t-> inf)
 
-        hospital_t0Init = 5.0 # time when disease is typically detected
-        hospital_sigmaInit = 1.0
+        hospital_t0Init = 14.0 # time when disease is typically detected
+        hospital_sigmaInit = 7.3
         hospitalization_Init = 0.1 # chance that disease is finally detected (t-> inf)
 
         infect_first_time_init = (1.0 + firstInf).astype(np.float32) # AllMeasured['Dates'].to_list().index('21.02.2020')+0.2   # day of first infection in the district
@@ -67,16 +67,16 @@ class CoronaDelayModel(stm.Model):
         # influx = self.newVariables({'influx': 0.0001})  # a district dependent variable of initially infected
         # infectionRate = lambda I: (I + influx) * self.Var['r0']
         death = lambda: death_rate() * self.Axes['Disease Progression'].initGaussian(death_time(), death_sigma())
-        self.addRate('I', 'D', death, resultTransfer=('deaths', 'Disease Progression'))  # I[t] -> H[t]
+        self.addRate('I', 'D', death, resultTransfer=('deaths', 'Disease Progression'), resultScale = self.PopSum)  # I[t] -> H[t]
 
         detect_t0 = self.newVariables({'detect_t0': detect_t0Init}, forcePos=False)  # time when disease is typically detected
         detect_sigma = self.newVariables({'detect_sigma': detect_sigmaInit})  # time when disease (New cases!) is typically detected
         detect = self.newVariables({'detect': detect_Init})  # rate of final detection
         detection = lambda: detect() * self.Axes['Disease Progression'].initGaussian(detect_t0(), detect_sigma()) # new cases is an event. Therefore Gaussian
-        self.addResult('cases', lambda State: tf.reduce_sum(State['I'] * detection()))  # Only the new cases
+        self.addResult('cases', lambda State: self.PopSum * tf.reduce_sum(State['I'] * detection()))  # Only the new cases
 
-        measured = np.squeeze(AllMeasured['Cases']) / self.PopSum
-        measuredDead = np.squeeze(AllMeasured['Dead']) / self.PopSum
+        measured = np.squeeze(AllMeasured['Cases']) # / self.PopSum
+        measuredDead = np.squeeze(AllMeasured['Dead'])  #/ self.PopSum
         self.FitDict = {'cases': measured, 'deaths': measuredDead}
 
         if "Hospitalized" in AllMeasured.keys():
@@ -84,8 +84,8 @@ class CoronaDelayModel(stm.Model):
             hospital_sigma = self.newVariables({'hospital_sigma': hospital_sigmaInit})  # time when disease (New cases!) is typically detected
             hospital = self.newVariables({'hospital': hospitalization_Init})  # rate of final detection
             hospitalization = lambda: hospital() * self.Axes['Disease Progression'].initGaussian(hospital_t0(), hospital_sigma())  # new cases is an event. Therefore Gaussian
-            self.addResult('hospitalization', lambda State: tf.reduce_sum(State['I'] * hospitalization()))  # Only the new cases
-            self.FitDict['hospitalization'] = np.squeeze(AllMeasured['Hospitalized']/ self.PopSum)
+            self.addResult('hospitalization', lambda State: self.PopSum * tf.reduce_sum(State['I'] * hospitalization()))  # Only the new cases
+            self.FitDict['hospitalization'] = np.squeeze(AllMeasured['Hospitalized']) # / self.PopSum)
         # self.FitDict = {'deaths': measuredDead}
 
     def doFit(self, NIter=0):
@@ -95,14 +95,14 @@ class CoronaDelayModel(stm.Model):
         self.doFit()
         xlim = None  # (60,100)
 
-        p=self.showResultsBokeh(title = self.AllMeasured['Region'], Scale=self.PopSum, ylabel='Population',
+        p=self.showResultsBokeh(title = self.AllMeasured['Region'], ylabel='Population',
                       xlim=xlim, subPlot='cases',
                       legendPlacement = 'upper right', figsize=[10,5], Dates=self.AllMeasured['Dates'])
         if 'Hospitalized' in self.AllMeasured:
-            p=self.showResultsBokeh(title=self.AllMeasured['Region'], Scale=self.PopSum, ylabel='Population',
+            p=self.showResultsBokeh(title=self.AllMeasured['Region'], ylabel='Population',
                           xlim=xlim, subPlot='hospitalization',
                           legendPlacement='upper right', figsize=[10,5], Dates=self.AllMeasured['Dates'])
-        p=self.showResultsBokeh(title=self.AllMeasured['Region'], Scale=self.PopSum, ylabel='Population',
+        p=self.showResultsBokeh(title=self.AllMeasured['Region'], ylabel='Population',
                       xlim=xlim, subPlot='deaths',
                       legendPlacement='upper right', figsize=[10,5], Dates=self.AllMeasured['Dates'])
         p=self.showResultsBokeh(title=self.AllMeasured['Region'], ylabel='Population',

@@ -167,25 +167,29 @@ def binThuringia(data, lastDate=None):
         if row['IstErkrankungsbeginn'] and myday is not np.nan and myday < dayLast.days:
             Cases[myday, myLK, myAge, myGender] += 1.0
         else:
-            ExtraRefCases[myRefday, myLK, myAge, myGender] += 1.0
+            if myRefday < dayLast.days:
+                ExtraRefCases[myRefday, myLK, myAge, myGender] += 1.0
         myCuredDay = (row[AbsonderungEnde] - day1).days
         if myCuredDay is not np.nan and myCuredDay < Cured.shape[0] and myCuredDay < dayLast.days:
             Cured[myCuredDay, myLK, myAge, myGender] += 1
         else:
-            ExtraRefCured[myRefday, myLK, myAge, myGender] += 1
+            if myRefday < dayLast.days:
+                ExtraRefCured[myRefday, myLK, myAge, myGender] += 1
 
         hospitalDay = (row['AbsonderungVon'] - day1).days
         if row['HospitalisierungStatus'] == "Ja":
             if hospitalDay is not np.nan and hospitalDay < dayLast.days:
                 Hospitalized[hospitalDay, myLK, myAge, myGender] += 1
             else:
-                ExtraRefHospitalized[myRefday, myLK, myAge, myGender] += 1.0
+                if myRefday < dayLast.days:
+                    ExtraRefHospitalized[myRefday, myLK, myAge, myGender] += 1.0
         myDeadDay = (row['VerstorbenDatum'] - day1).days
         if row['VerstorbenStatus'] == 'Ja':
             if myDeadDay is not np.nan and myDeadDay < dayLast.days:
                 Dead[myDeadDay, myLK, myAge, myGender] += 1
             else:
-                ExtraRefDead[myRefday, myLK, myAge, myGender] += 1.0
+                if myRefday < dayLast.days:
+                    ExtraRefDead[myRefday, myLK, myAge, myGender] += 1.0
 
     print('Missed Cases: '+str(np.sum(ExtraRefCases))+', Hospitalized: '+str(np.sum(ExtraRefHospitalized))+', Cured: '+str(np.sum(ExtraRefCured))+', deaths: '+str(np.sum(ExtraRefDead)))
 
@@ -578,3 +582,11 @@ def cumulate(rki_data, df, whichDate = 'Refdatum'):
     # AllCumulCase, AllCumulDead, AllCumulCured, (IDs, LKs, PopM, PopW, Area, Ages, Gender, allDates)
     return measured, firstDate, numDays
 
+def ReadDeaths():
+    deaths = pd.read_csv(r"C:\Users\pi96doc\Documents\Programming\PythonScripts\FromWeb\COVID-19-DE\time_series\time-series_19-covid-Deaths.csv", low_memory=False)
+    # deaths2 = pd.read_csv(r"https://github.com/micgro42/COVID-19-DE/blob/master/time_series/time-series_19-covid-Deaths.csv")
+    Dates = deaths.keys().to_list()[1:]
+    deaths = deaths.to_numpy()
+    Land = deaths[:,0]
+    deaths = deaths[:,1:]
+    return deaths, Land, Dates

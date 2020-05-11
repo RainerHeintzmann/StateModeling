@@ -13,7 +13,9 @@ from dotenv import load_dotenv
 import os
 import requests
 from datetime import datetime, timedelta
+
 cumulPrefix = '_cumul_'  # this is used as a keyword to identify whether this plot was already plotted
+
 
 class DataLoader(object):
     def __init__(self):
@@ -59,6 +61,7 @@ else:
 defaultTFDataType = "float32"
 defaultTFCpxDataType = "complex64"
 
+
 def addDicts(dict1, dict2):
     """Merge dictionaries and keep values of common keys in list"""
     dict3 = {**dict1, **dict2}
@@ -68,9 +71,10 @@ def addDicts(dict1, dict2):
             if equalShape(value.shape, val2.shape):
                 dict3[key] = value + val2
             else:
-                print('Shape 1: '+str(value.shape)+", shape 2:"+str(val2.shape))
+                print('Shape 1: ' + str(value.shape) + ", shape 2:" + str(val2.shape))
                 raise ValueError('Shapes of transfer values to add are not the same')
     return dict3
+
 
 def Init(noCuda=False):
     """
@@ -415,6 +419,7 @@ def totensor(img):
             img = tf.constant(img, defaultTFDataType)
     return img
 
+
 def doCheckScaling(fwd, meas):
     sF = tf.reduce_mean(input_tensor=totensor(fwd)).numpy()
     sM = tf.reduce_mean(input_tensor=totensor(meas)).numpy()
@@ -431,7 +436,9 @@ def Loss_SimpleGaussian(fwd, meas, lossDataType=None, checkScaling=False):
         lossDataType = defaultLossDataType
     with tf.compat.v1.name_scope('Loss_SimpleGaussian'):
         #       return tf.reduce_sum(tf.square(fwd-meas))  # version without normalization
-        return tf.reduce_mean(input_tensor=tf.cast(tf.square(fwd - meas), lossDataType))  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
+        return tf.reduce_mean(
+            input_tensor=tf.cast(tf.square(fwd - meas), lossDataType))  # to make everything scale-invariant. The TF framework hopefully takes care of precomputing this
+
 
 # %% this section defines a number of loss functions. Note that they often need fixed input arguments for measured data and sometimes more parameters
 def Loss_FixedGaussian(fwd, meas, lossDataType=None, checkScaling=False):
@@ -544,11 +551,13 @@ def retrieveData():
     print('Last Day loaded: ' + str(pd.to_datetime(np.max(rki_data.Meldedatum), unit='ms')))
     return rki_data
 
+
 def deltas(WhenHowMuch, SimTimes):
     res = np.zeros(SimTimes)
     for w, h in WhenHowMuch:
         res[w] = h;
     return res
+
 
 def showResiduum(meas, fit):
     res1 = np.mean(meas - fit, (1, 2))
@@ -557,6 +566,7 @@ def showResiduum(meas, fit):
     plt.xlabel('days')
     plt.ylabel('mean difference / cases')
     plt.title('residuum')
+
 
 def plotAgeGroups(res1, res2):
     plt.figure()
@@ -575,11 +585,13 @@ class axisType:
     individual = 'individual'
     uniform = 'uniform'
 
+
 def prependOnes(s1, s2):
     l1 = len(s1);
     l2 = len(s2)
     maxDim = max(l1, l2)
     return np.array((maxDim - l1) * [1] + list(s1)), np.array((maxDim - l2) * [1] + list(s2))
+
 
 def equalShape(s1, s2):
     if isinstance(s1, tf.TensorShape):
@@ -588,6 +600,7 @@ def equalShape(s1, s2):
         s2 = s2.as_list()
     s1, s2 = prependOnes(s1, s2)
     return np.linalg.norm(s1 - s2) == 0
+
 
 class Axis:
     def ramp(self):
@@ -724,7 +737,7 @@ class Model:
         self.RegisteredAxes = []  # just to have a convenient way of indexing them
         self.State = {}  # dictionary of state variables
         self.Var = {}  # may be variables or lambdas
-        self.VarDisplayLog = {} # display this variable with a logarithmic slider
+        self.VarDisplayLog = {}  # display this variable with a logarithmic slider
         self.rawVar = {}  # saves the raw variables
         self.toRawVar = {}  # stores the inverse functions to initialize the rawVar
         self.toVar = {}  # stores the function to get from the rawVar to the Var
@@ -739,10 +752,12 @@ class Model:
         self.ResultCalculator = {}  # remembers the variable names that define the results
         self.ResultVals = {}
         self.Progression = {}  # dictionary storing the state and resultVal(s) progression (List per Key)
-        self.DataDict = {} # used for plotting with bokeh
-        self.WidgetDict = {} # used for plotting with bokeh
+        self.DataDict = {}  # used for plotting with bokeh
+        self.WidgetDict = {}  # used for plotting with bokeh
         self.FitButton = None
         self.FitLossWidget = None
+        self.FitLossChoices = ['SimpleGaussian', 'Gaussian', 'ScaledGaussian', 'Poisson']
+        self.FitLossChoiceWidget = None
         self.plotCumul = False
         np.random.seed(rand_seed)
 
@@ -764,11 +779,11 @@ class Model:
         return initVals
 
     def initDeltaT0(self, t0, t, sig=2.0):
-        initVals = ((t - t0) == 0.0)*1.0
+        initVals = ((t - t0) == 0.0) * 1.0
         return initVals
 
     def initSigmoidDropT0(self, t0, t, sig, dropTo=0.0):
-        initVals = (1.-dropTo) / (1. + tf.exp((t - t0) / sig)) + dropTo
+        initVals = (1. - dropTo) / (1. + tf.exp((t - t0) / sig)) + dropTo
         return initVals
 
     def newState(self, name, axesInit=None, makeInitVar=False):
@@ -832,7 +847,7 @@ class Model:
                         raise ValueError("Variable " + name + " was previously defined.")
                     else:
                         self.assignNewVar(name, initVal)
-                        print('assigned new value to variable: '+name)
+                        print('assigned new value to variable: ' + name)
                     continue
                 if name in self.State:
                     raise ValueError("Variable " + name + " is already defined as a State.")
@@ -872,7 +887,7 @@ class Model:
     def assignWidgetVar(self, newval, varname=None, relval=None, idx=None, showResults=None):
         # print('assignWidgetVar: '+varname+", val:" + str(newval))
         mywidget = self.WidgetDict[varname]
-        if isinstance(mywidget, tuple) or isinstance(mywidget,list):
+        if isinstance(mywidget, tuple) or isinstance(mywidget, list):
             mywidget = mywidget[0]
         self.adjustMinMax(mywidget, newval.new)
         if idx is None:
@@ -880,7 +895,7 @@ class Model:
         else:
             newval = newval.new
             idx = idx.value
-        res= self.assignNewVar(varname, newval, relval, idx)
+        res = self.assignNewVar(varname, newval, relval, idx)
         if showResults is not None:
             # self.simulate('measured')
             showResults()
@@ -899,7 +914,7 @@ class Model:
         self.rawVar[varname].assign(newval)
         return self.rawVar[varname]
 
-    def addRate(self, fromState, toState, rate, queueSrc=None, queueDst=None, name=None, hasTime=False, hoSumDims=None, resultTransfer=None):  # S ==> I[0]
+    def addRate(self, fromState, toState, rate, queueSrc=None, queueDst=None, name=None, hasTime=False, hoSumDims=None, resultTransfer=None, resultScale=None):  # S ==> I[0]
         if queueSrc is not None:
             ax = self.QueueStates[fromState]
             if queueSrc != ax.name and queueSrc != "total":
@@ -911,7 +926,7 @@ class Model:
         if hoSumDims is not None:
             hoSumDims = [- self.Axes[d].curAxis for d in hoSumDims]
 
-        self.Rates.append([fromState, toState, rate, queueSrc, queueDst, name, hasTime, hoSumDims, resultTransfer])
+        self.Rates.append([fromState, toState, rate, queueSrc, queueDst, name, hasTime, hoSumDims, resultTransfer, resultScale])
 
     def findString(self, name, State=None):
         if State is None:
@@ -927,7 +942,7 @@ class Model:
         else:
             ValueError('findString: Value ' + name + ' not found in Vars, States or Results')
 
-    def reduceToResultByName(self, transferred, resultTransfer):
+    def reduceToResultByName(self, transferred, resultTransfer, resultScale=None):
         Results = {}
         if isinstance(resultTransfer, list) or isinstance(resultTransfer, tuple):
             resultTransferName = resultTransfer[0]
@@ -935,6 +950,8 @@ class Model:
         else:
             resultTransferName = resultTransfer
             resultT = transferred
+        if resultScale is not None:
+            resultT = resultT * resultScale
 
         if resultTransferName in Results:
             if resultT.shape == Results[resultTransferName].shape:
@@ -950,7 +967,7 @@ class Model:
         Results = {}
         # insert here the result variables
         OrigStates = State.copy()  # copies the dictionary but NOT the variables in it
-        for fromName, toName, rate, queueSrc, queueDst, name, hasTime, hoSumDims, resultTransfer in self.Rates:
+        for fromName, toName, rate, queueSrc, queueDst, name, hasTime, hoSumDims, resultTransfer, resultScale in self.Rates:
             if isinstance(rate, str):
                 rate = self.findString(rate)
             higherOrder = None
@@ -986,11 +1003,11 @@ class Model:
                 if isinstance(resultTransfer, list) or isinstance(resultTransfer, tuple):
                     if isinstance(resultTransfer[0], list) or isinstance(resultTransfer[0], tuple):
                         for rT in resultTransfer:
-                            Res = self.reduceToResultByName(transferred, rT)
+                            Res = self.reduceToResultByName(transferred, rT, resultScale=resultScale)
                             Results = addDicts(Results, Res)
                             # State = addDicts(State, Res)
                     else:
-                        Res = self.reduceToResultByName(transferred, resultTransfer)
+                        Res = self.reduceToResultByName(transferred, resultTransfer, resultScale=resultScale)
                         Results = addDicts(Results, Res)
                         # State = addDicts(State, Res)
                 else:
@@ -1060,7 +1077,7 @@ class Model:
                 self.Progression[vName].append(val)
             # else: # this is a Result item, which may or may not be used in the calculations below
             #     pass
-                # raise ValueError('detected a State, which is not in States.')
+            # raise ValueError('detected a State, which is not in States.')
 
         for resName, res in Results.items():
             if resName not in self.ResultVals:
@@ -1072,8 +1089,8 @@ class Model:
         for resName, calc in self.ResultCalculator.items():
             res = calc(State)
             # if len(res.shape) == self.maxAxes:
-                # sqax = list(range(self.maxAxes - self.curAxis + 1))
-                # res = tf.squeeze(res, sqax)
+            # sqax = list(range(self.maxAxes - self.curAxis + 1))
+            # res = tf.squeeze(res, sqax)
             if resName not in self.ResultVals:
                 self.ResultVals[resName] = [res]
             else:
@@ -1118,7 +1135,7 @@ class Model:
             State = newState
         print()
         self.cleanupResults()
-        #print(" .. done")
+        # print(" .. done")
         return State
 
     def addResult(self, name, anEquation):
@@ -1136,7 +1153,7 @@ class Model:
 
     @tf.function
     def doBuildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10, oparam={"noiseModel": "Gaussian"}):
-        #print("tracing doBuildModel")
+        # print("tracing doBuildModel")
         # tf.print("running doBuildModel")
         finalState = self.traceModel(Tmax)
         Loss = None
@@ -1151,16 +1168,22 @@ class Model:
                 raise ValueError('Predicted and measured data have different shape. Try introducing np.newaxis into measured data.')
             self.ResultVals[predictionName] = predicted  # .numpy()
             myFitEnd = min(measured.shape[0], predicted.shape[0], FitEnd)
+
             if "noiseModel" not in oparam:
-                noiseModel ="Gaussian"
+                noiseModel = "Gaussian"
             else:
                 noiseModel = oparam["noiseModel"]
-            if predictionName in self.lossWeight:
-                fwd = tf.squeeze(self.lossWeight[predictionName] * predicted[FitStart:myFitEnd])
-                meas = tf.squeeze(self.lossWeight[predictionName] * measured[FitStart:myFitEnd])
-            else:
-                fwd = tf.squeeze(predicted[FitStart:myFitEnd])
-                meas = tf.squeeze(measured[FitStart:myFitEnd])
+
+            if self.FitLossChoiceWidget is not None:
+                noiseModel = self.FitLossChoiceWidget.options[self.FitLossChoiceWidget.value][0]
+                # print('Noise model: '+noiseModel)
+
+            # if predictionName in self.lossWeight:
+            #     fwd = tf.squeeze(self.lossWeight[predictionName] * predicted[FitStart:myFitEnd])
+            #     meas = tf.squeeze(self.lossWeight[predictionName] * measured[FitStart:myFitEnd])
+            # else:
+            fwd = tf.squeeze(predicted[FitStart:myFitEnd])
+            meas = tf.squeeze(measured[FitStart:myFitEnd])
             if fwd.shape != meas.shape:
                 raise ValueError('Shapes of simulated data and measured data have to agree.')
             if noiseModel == "SimpleGaussian":
@@ -1175,6 +1198,10 @@ class Model:
                 thisLoss = Loss_Poisson2(fwd, meas)
             else:
                 ValueError("Unknown noise model: " + noiseModel)
+
+            if predictionName in self.lossWeight:
+                thisLoss = thisLoss * self.lossWeight[predictionName]
+
             if Loss is None:
                 Loss = thisLoss
             else:
@@ -1248,10 +1275,10 @@ class Model:
             self.FitButton.style.button_color = 'red'
         for avar in self.FitVars:
             if avar not in self.Var:
-                raise ValueError('Variable to fit: '+avar+' was not found in defined variables in this model.')
+                raise ValueError('Variable to fit: ' + avar + ' was not found in defined variables in this model.')
         for aweight in self.lossWeight:
             if aweight not in data_dict:
-                print('WARNING: '+aweight+' was defined as a weight, but no dataset with this name exists! Ignoring entry.')
+                print('WARNING: ' + aweight + ' was defined as a weight, but no dataset with this name exists! Ignoring entry.')
 
         if "learning_rate" not in oparam:
             oparam["learning_rate"] = None
@@ -1261,7 +1288,12 @@ class Model:
             data_dict[predictionName] = tf.constant(measured, CalcFloatStr)
             self.Measurements['measured'][predictionName] = data_dict[predictionName]  # save as measurement for plot
 
-        loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
+        if self.FitLossChoiceWidget is not None:
+            oparam['noiseModel'] = self.FitLossChoiceWidget.options[self.FitLossChoiceWidget.value][0]
+            # print('rebuilt model with noise Model: '+oparam['noiseModel'])
+            loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
+        else:
+            loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
 
         FitVars = [self.rawVar[varN] for varN in self.FitVars]
         # if lossScale == "max":
@@ -1279,7 +1311,7 @@ class Model:
         opt.optName = otype  # just to store this
         if NIter > 0:
             if self.FitLossWidget is not None:
-                with self.FitLossWidget: # redirect the output
+                with self.FitLossWidget:  # redirect the output
                     self.FitLossWidget.clear_output()
                     res = Optimize(opt, loss=loss_fnOnly, lossScale=lossScale)  # self.ResultVals.items()
             else:
@@ -1337,7 +1369,6 @@ class Model:
         listOfAxes = list(listOfAxesNames)
         return [- self.findAxis(d).curAxis for d in listOfAxesNames]
 
-
     def selectDims(self, toPlot, dims=None, includeZero=False):
         """
             selects the dimensions to plot and returns a list of labels
@@ -1369,7 +1400,7 @@ class Model:
             toPlot = np.sum(toPlot, tuple(rd))
         return toPlot, labels
 
-    def showDates(self, Dates, offsetDay = 0):          # being sunday
+    def showDates(self, Dates, offsetDay=0):  # being sunday
         plt.xticks(range(offsetDay, len(Dates), 7), [date for date in Dates[offsetDay:-1:7]], rotation=70)
         # plt.xlim(45, len(Dates))
         plt.tight_layout()
@@ -1383,15 +1414,15 @@ class Model:
         from bokeh.io.notebook import CommsHandle
         self.plotCumul = val['new']
         for fn, f in self.DataDict.items():
-            #print('looking for figures: ')
-            #print(f)
+            # print('looking for figures: ')
+            # print(f)
             if isinstance(f, Figure):
                 for r in f.renderers:
                     if r.name.startswith(cumulPrefix):
-                        r.visible = self.plotCumul # shows cumul plots according to settings
+                        r.visible = self.plotCumul  # shows cumul plots according to settings
                     else:
                         r.visible = not self.plotCumul
-                #print('cleared renderer of figure '+fn+' named: '+f.name)
+                # print('cleared renderer of figure '+fn+' named: '+f.name)
 
     def plotB(self, Figure, x, toPlot, name, color=None, line_dash=None, withDots=False, useBars=True):
         # create a column data source for the plots to share
@@ -1404,8 +1435,8 @@ class Model:
             myPrefix = cumulPrefix
             # print('Cumul: set useBars to False')
 
-        if isinstance(x,pd.core.indexes.datetimes.DatetimeIndex):
-            msPerDay = 0.6 * 1000.0*60*60*24
+        if isinstance(x, pd.core.indexes.datetimes.DatetimeIndex):
+            msPerDay = 0.6 * 1000.0 * 60 * 60 * 24
         else:
             msPerDay = 0.6
         if myPrefix + name not in self.DataDict:
@@ -1415,11 +1446,11 @@ class Model:
                 source = ColumnDataSource(data=dict(x=x, y=toPlot))
                 self.DataDict[name] = source
             else:
-                #print('Updating y-data of: ' + name)
+                # print('Updating y-data of: ' + name)
                 self.DataDict[name].data['y'] = toPlot
                 source = self.DataDict[name]
             if self.plotCumul:
-                mylegend = name+"_cumul"
+                mylegend = name + "_cumul"
             else:
                 mylegend = name
             if useBars:
@@ -1435,7 +1466,7 @@ class Model:
                 if withDots:
                     r = Figure.circle('x', 'y', line_width=1.5, alpha=0.8, color=color, source=source, name=name)
                     r.visible = True
-                r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color,line_dash=line_dash, legend_label=mylegend, source=source, name=name)
+                r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color, line_dash=line_dash, legend_label=mylegend, source=source, name=name)
                 r.visible = True
             # print('First plot of: '+name)
         else:
@@ -1451,8 +1482,8 @@ class Model:
 
     def showResultsBokeh(self, title='Results', xlabel='time step', Scale=False, xlim=None, ylim=None,
                          ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0, logY=True,
-                         styles = ['dashed','solid','dotted','dotdash','dashdot'], figsize=None, subPlot=None, dictToPlot=None, oneMinus=None):
-        from bokeh.plotting import figure # output_file,
+                         styles=['dashed', 'solid', 'dotted', 'dotdash', 'dashdot'], figsize=None, subPlot=None, dictToPlot=None, oneMinus=None):
+        from bokeh.plotting import figure  # output_file,
         from bokeh.palettes import Dark2_5 as palette
         from bokeh.io import push_notebook, show
         import itertools
@@ -1492,10 +1523,10 @@ class Model:
             if isinstance(oneMinus, str):
                 oneMinus = [oneMinus]
         else:
-            oneMinus=[]
+            oneMinus = []
 
         self.DataDict['_title'] = FigureTitle
-        newFigure=False
+        newFigure = False
         if FigureIdx not in self.DataDict:
             if Dates is not None:
                 self.DataDict[FigureIdx] = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
@@ -1503,12 +1534,12 @@ class Model:
                 self.DataDict[FigureIdx].xaxis.major_label_orientation = np.pi / 4
             else:
                 self.DataDict[FigureIdx] = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
-                                           background_fill_color='#efefef', tools=TOOLS, name=FigureIdx)
+                                                  background_fill_color='#efefef', tools=TOOLS, name=FigureIdx)
             self.DataDict[FigureIdx].xaxis.axis_label = 'time'
             self.DataDict[FigureIdx].yaxis.axis_label = ylabel
-            newFigure=True
+            newFigure = True
             # show(self.DataDict['_figure'], notebook_handle=True)
-            #if ylabel is not None:
+            # if ylabel is not None:
             #    self.resultFigure.yaxis.axis_label = ylabel
 
         colors = itertools.cycle(palette)
@@ -1526,7 +1557,7 @@ class Model:
                     colors = itertools.cycle(palette)
                     for d, color in zip(range(toPlot.shape[1]), colors):
                         x = self.getDates(Dates, toPlot)
-                        self.plotB(self.DataDict[FigureIdx], x, toPlot[:,d], name=resN + "_" + dictN+"_"+labels[0][d], withDots=True, color=color, line_dash=style)
+                        self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name=resN + "_" + dictN + "_" + labels[0][d], withDots=True, color=color, line_dash=style)
                 else:
                     color = next(colors)
                     x = self.getDates(Dates, toPlot)
@@ -1544,14 +1575,14 @@ class Model:
             toPlot = np.squeeze(toPlot)
             if dictN in oneMinus:
                 toPlot = 1.0 - toPlot
-                dictN = '1-'+dictN
+                dictN = '1-' + dictN
             if Scale is not None:
                 toPlot = toPlot * Scale
             if toPlot.ndim > 1:
                 colors = itertools.cycle(palette)
                 for d, color in zip(range(toPlot.shape[1]), colors):
                     x = self.getDates(Dates, toPlot)
-                    self.plotB(self.DataDict[FigureIdx], x, toPlot[:,d], name="Fit_" + dictN + "_" + labels[0][d], color=color, line_dash=style)
+                    self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name="Fit_" + dictN + "_" + labels[0][d], color=color, line_dash=style)
             else:
                 color = next(colors)
                 x = self.getDates(Dates, toPlot)
@@ -1562,16 +1593,17 @@ class Model:
         #     plt.ylim(ylim[0],ylim[1])
         # push_notebook()
         if newFigure:
-            #print('showing figure')
+            # print('showing figure')
             try:
                 self.DataDict[FigureIdx + '_notebook_handle'] = show(self.DataDict[FigureIdx], notebook_handle=True)
             except:
                 print('Warnings: Figures are not showing, probably due to being called from console')
         else:
-            #print('pushing notebook')
+            # print('pushing notebook')
             push_notebook(handle=self.DataDict[FigureIdx + '_notebook_handle'])
 
-    def showResults(self, title='Results', xlabel='time step', Scale=False, xlim=None, ylim=None, ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0, logY=True, styles = ['.', '-', ':', '--','-.','*'], figsize=None):
+    def showResults(self, title='Results', xlabel='time step', Scale=False, xlim=None, ylim=None, ylabel='probability', dims=None, legendPlacement='upper left', Dates=None,
+                    offsetDay=0, logY=True, styles=['.', '-', ':', '--', '-.', '*'], figsize=None):
         if logY:
             plot = plt.semilogy
         else:
@@ -1618,15 +1650,15 @@ class Model:
                 legend.append("Fit_" + "_" + dictN)
         plt.legend(legend, loc=legendPlacement)
         if Dates is not None:
-            self.showDates(Dates,offsetDay)
+            self.showDates(Dates, offsetDay)
         elif xlabel is not None:
             plt.xlabel(xlabel)
         if ylabel is not None:
             plt.ylabel(ylabel)
         if xlim is not None:
-            plt.xlim(xlim[0],xlim[1])
+            plt.xlim(xlim[0], xlim[1])
         if ylim is not None:
-            plt.ylim(ylim[0],ylim[1])
+            plt.ylim(ylim[0], ylim[1])
 
     def sumOfStates(self, Progression, sumcoords=None):
         sumStates = 0
@@ -1636,7 +1668,7 @@ class Model:
             sumStates = sumStates + np.sum(state.numpy(), axis=sumcoords)
         return sumStates
 
-    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, 1], MinusOne=[], legendPlacement='upper left', Dates = None,
+    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, 1], MinusOne=[], legendPlacement='upper left', Dates=None,
                    offsetDay=0, logY=False, xlim=None, ylim=None, figsize=None):
         if logY:
             plot = plt.semilogy
@@ -1655,11 +1687,11 @@ class Model:
         else:
             Progression = self.Progression
 
-        sumStates = np.squeeze(self.sumOfStates(Progression, (1,2,3)))
+        sumStates = np.squeeze(self.sumOfStates(Progression, (1, 2, 3)))
         initState = sumStates[0]
         meanStates = np.mean(sumStates)
         maxDiff = np.max(abs(sumStates - initState))
-        print("Sum of states deviates by: " + str(maxDiff) + ", from the starting state:" + str(initState)+". relative: " + str(maxDiff / initState))
+        print("Sum of states deviates by: " + str(maxDiff) + ", from the starting state:" + str(initState) + ". relative: " + str(maxDiff / initState))
         N = 1
         for varN in Progression:
             if varN not in exclude:
@@ -1668,7 +1700,7 @@ class Model:
                 toPlot = Progression[varN]  # np.squeeze(
                 myLegend = varN
                 if np.squeeze(toPlot).ndim > 1:
-                    if dims2d is not None and len(self.Axes)>1:
+                    if dims2d is not None and len(self.Axes) > 1:
                         plt.figure(10 + N)
                         plt.ylabel(xlabel)
                         N += 1
@@ -1676,7 +1708,7 @@ class Model:
                         toPlot2, labels = self.selectDims(toPlot, dims=dims2d)
                         toPlot2 = np.squeeze(toPlot2)
                         plt.imshow(toPlot2, aspect="auto")
-                        #plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
+                        # plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
                         plt.xlabel(dims2d[1])
                         plt.xticks(range(toPlot2.shape[1]), labels[1], rotation=70)
                         plt.colorbar()
@@ -1690,20 +1722,20 @@ class Model:
                 legend.append(myLegend)
         plt.legend(legend, loc=legendPlacement)
         if Dates is not None:
-            self.showDates(Dates,offsetDay)
+            self.showDates(Dates, offsetDay)
         elif xlabel is not None:
             plt.xlabel(xlabel)
         if ylabel is not None:
             plt.ylabel(ylabel)
         if xlim is not None:
-            plt.xlim(xlim[0],xlim[1])
+            plt.xlim(xlim[0], xlim[1])
         if ylim is not None:
-            plt.ylim(ylim[0],ylim[1])
+            plt.ylim(ylim[0], ylim[1])
 
-    def compareFit(self, maxPrintSize=10, dims=None, fittedVars=None, legendPlacement='upper left', Dates = None, offsetDay=0):
+    def compareFit(self, maxPrintSize=10, dims=None, fittedVars=None, legendPlacement='upper left', Dates=None, offsetDay=0):
         for varN, orig in self.Original.items():
             fit = np.squeeze(totensor(removeCallable(self.Var[varN])).numpy())
-            orig = np.squeeze(self.toVar[varN](orig).numpy()) # convert from rawVar to Var
+            orig = np.squeeze(self.toVar[varN](orig).numpy())  # convert from rawVar to Var
             if varN not in self.Distorted:
                 dist = orig
             else:
@@ -1727,40 +1759,40 @@ class Model:
                 plt.plot(fit)
                 plt.legend(["distorted", "original", "fit"], loc=legendPlacement)
                 if Dates is not None:
-                    self.showDates(Dates,offsetDay)
+                    self.showDates(Dates, offsetDay)
 
     def toggleInFit(self, toggle, name):
         if toggle['new']:
-            #print('added '+name)
+            # print('added '+name)
             self.FitVars.append(name)
         else:
-            #print('removed '+name)
+            # print('removed '+name)
             self.FitVars.remove(name)
 
-    def assignToWidget(self, idx, varN = None, widget=None):
+    def assignToWidget(self, idx, varN=None, widget=None):
         if varN in self.Var:
             val = np.squeeze(self.Var[varN]())[idx['new']]
         else:
             val = np.squeeze(self.lossWeight[varN]())[idx['new']]
         self.adjustMinMax(widget, val)
         widget.value = val
-        #print('assignToWidget, varN: '+varN+', idx='+str(idx['new'])+', val:'+str(val)+', widget: '+widget.description)
+        # print('assignToWidget, varN: '+varN+', idx='+str(idx['new'])+', val:'+str(val)+', widget: '+widget.description)
 
     def adjustMinMax(self, widget, val):
-        #print('AdjustMinMax: '+str(widget.min)+', val. '+ str(val) +', max:'+str(widget.max))
+        # print('AdjustMinMax: '+str(widget.min)+', val. '+ str(val) +', max:'+str(widget.max))
         from ipywidgets import widgets
         if isinstance(widget, widgets.FloatLogSlider):
             lval = np.log10(val)
         else:
             lval = val
-        if lval <= widget.min+(widget.max-widget.min)/10.0:
+        if lval <= widget.min + (widget.max - widget.min) / 10.0:
             widget.min = lval - 1.0
-        if lval >= widget.max-(widget.max-widget.min)/10.0:
+        if lval >= widget.max - (widget.max - widget.min) / 10.0:
             widget.max = lval + 1.0
-        #print('post AdjustMinMax: '+str(widget.min)+', val. '+ str(val) +', max:'+str(widget.max))
+        # print('post AdjustMinMax: '+str(widget.min)+', val. '+ str(val) +', max:'+str(widget.max))
 
     def updateAllWidgets(self, dummy=None):
-        #print('updateAllWidgets')
+        # print('updateAllWidgets')
         for varN, w in self.WidgetDict.items():
             newval = self.Var[varN]()
             if isinstance(w, tuple):
@@ -1781,7 +1813,7 @@ class Model:
             valueWidget = widgets.FloatLogSlider(value=myval, base=10, min=mymin, max=mymax)
         else:
             mymin = 0.0
-            mymax = myval*3.0
+            mymax = myval * 3.0
             valueWidget = widgets.FloatSlider(value=myval, min=mymin, max=mymax)
         return valueWidget
 
@@ -1807,13 +1839,13 @@ class Model:
         # self.WidgetDict[varN] = (valueWidget, dropWidget)
         return widget
 
-    def getGUI(self, fitVars = None, nx=3, showResults=None, doFit=None):
+    def getGUI(self, fitVars=None, nx=3, showResults=None, doFit=None):
         from ipywidgets import widgets, Layout
         from IPython.display import display
         import functools
 
         item_layout = Layout(display='flex', flex_flow='row', justify_content='space-between')
-        small_item_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', width='20%')
+        small_item_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', width='15%')
         box_layout = Layout(display='flex', flex_flow='column', border='solid 2px', align_items='stretch', width='40%')
         box2_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', border='solid 2px', align_items='stretch', width='40%')
         output_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', border='solid 2px', align_items='stretch', width='300px')
@@ -1826,13 +1858,13 @@ class Model:
 
         for varN in fitVars:
             var = self.Var[varN]().numpy()
-            if var.ndim > 0 and np.prod(np.array(var.shape))> 1:
-                mydim = np.nonzero(np.array(var.shape)-1)[0][0]
-                ax = self.RegisteredAxes[-mydim-1]
+            if var.ndim > 0 and np.prod(np.array(var.shape)) > 1:
+                mydim = np.nonzero(np.array(var.shape) - 1)[0][0]
+                ax = self.RegisteredAxes[-mydim - 1]
                 if ax.Labels is None:
-                    options = [(str(d),d) for d in range(np.prod(ax.shape))]
+                    options = [(str(d), d) for d in range(np.prod(ax.shape))]
                 else:
-                    options = [(ax.Labels[d],d) for d in range(len(ax.Labels))]
+                    options = [(ax.Labels[d], d) for d in range(len(ax.Labels))]
                 inFitWidget = widgets.Checkbox(value=(varN in self.FitVars), indent=False, layout=tickLayout, description=ax.name)
                 inFitWidget.observe(functools.partial(self.toggleInFit, name=varN), names='value')
                 drop = widgets.Dropdown(options=options, indent=False, value=0)
@@ -1842,11 +1874,11 @@ class Model:
                 # valueWidget = widgets.HBox((inFitWidget,valueWidget))
                 widget = widgets.Box((dropWidget, valueWidgetBox), layout=box_layout)
                 # do NOT use lambda below, as it does not seem to work in a for loop here!
-                #valueWidget.observe(lambda val: self.assignNewVar(varN, val.new, idx=drop.value), names='value')
+                # valueWidget.observe(lambda val: self.assignNewVar(varN, val.new, idx=drop.value), names='value')
                 drop.observe(functools.partial(self.assignToWidget, varN=varN, widget=valueWidget), names='value')
-                #showResults= showResults
+                # showResults= showResults
                 valueWidget.observe(functools.partial(self.assignWidgetVar, varname=varN, idx=drop), names='value')
-                self.WidgetDict[varN]=(valueWidget, drop)
+                self.WidgetDict[varN] = (valueWidget, drop)
                 px += 1
             else:
                 inFitWidget = widgets.Checkbox(value=(varN in self.FitVars), indent=False, layout=tickLayout, description=varN)
@@ -1856,14 +1888,14 @@ class Model:
                 # showResults=showResults
                 valueWidget.observe(functools.partial(self.assignWidgetVar, varname=varN), names='value')
                 self.WidgetDict[varN] = valueWidget
-                px +=1
+                px += 1
             # widget.manual_name = varN
             allWidgets[varN] = widget
             horizontalList.append(widget)
             if px >= nx:
                 widget = widgets.HBox(horizontalList)
-                horizontalList=[]
-                px=0
+                horizontalList = []
+                px = 0
                 display(widget)
         widget = widgets.HBox(horizontalList)
         horizontalList = []
@@ -1887,6 +1919,13 @@ class Model:
             doFitWidget = widgets.Button(description='Fit')
             self.FitButton = doFitWidget
             lastRow.append(doFitWidget)
+            options = [(self.FitLossChoices[d], d) for d in range(len(self.FitLossChoices))]
+            drop = widgets.Dropdown(options = options, indent=False, value=0)
+            self.FitLossChoiceWidget = drop
+            lastRow.append(drop)
+            widget = widgets.HBox(lastRow)
+            display(widget)
+            lastRow = []
             nIterWidget = widgets.IntText(value=100, description='NIter:', layout=small_item_layout)
             doFitWidget.on_click(lambda b: self.updateAllWidgets(doFit(NIter=nIterWidget.value)))
             lastRow.append(nIterWidget)
@@ -1898,12 +1937,14 @@ class Model:
         else:
             self.FitButton = None
             self.FitLossWidget = None
+            self.FitLossChoiceWidget = None
         widget = widgets.HBox(lastRow)
         display(widget)
         if showResults is not None:
             showResults()
 
         return allWidgets
+
 
 # --------- Stuff concerning loading data
 
@@ -1984,4 +2025,3 @@ def getMeasured(params={}):
     results['measured_dead'] = AllCumulDead
 
     return results
-
