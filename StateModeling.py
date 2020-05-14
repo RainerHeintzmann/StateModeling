@@ -756,8 +756,14 @@ class Model:
         self.WidgetDict = {}  # used for plotting with bokeh
         self.FitButton = None
         self.FitLossWidget = None
-        self.FitLossChoices = ['SimpleGaussian', 'Gaussian', 'ScaledGaussian', 'Poisson']
+        self.FitLossChoices = ['Poisson', 'SimpleGaussian', 'Gaussian', 'ScaledGaussian']
         self.FitLossChoiceWidget = None
+        self.FitOptimChoices = ['L-BFGS', 'SGD','nesterov', 'adam', 'adadelta', 'adagrad']
+        self.FitOptimChoiceWidget = None
+        self.FitOptimLambdaWidget = None
+        self.FitStartWidget = None
+        self.FitStopWidget = None
+        self.Regularizations = []  # list tuples of regularizers with type, weight and name of variable e.g. [('TV',0.1, 'R')]
         self.plotCumul = False
         np.random.seed(rand_seed)
 
@@ -885,6 +891,10 @@ class Model:
         self.updateAllWidgets()
 
     def assignWidgetVar(self, newval, varname=None, relval=None, idx=None, showResults=None):
+        """
+        is called when a value has been changed. The coordinates this change refers to are determined by the
+        drop-down widget list accessible via idx
+        """
         # print('assignWidgetVar: '+varname+", val:" + str(newval))
         mywidget = self.WidgetDict[varname]
         if isinstance(mywidget, tuple) or isinstance(mywidget, list):
@@ -894,7 +904,8 @@ class Model:
             newval = np.reshape(newval.new, self.Var[varname]().shape)
         else:
             newval = newval.new
-            idx = idx.value
+            idx = self.idxFromDropList(self.Var[varname]().shape, idx)
+            # print('assigning '+str(newval)+' to index: '+str(idx))
         res = self.assignNewVar(varname, newval, relval, idx)
         if showResults is not None:
             # self.simulate('measured')
@@ -909,7 +920,7 @@ class Model:
         if idx is not None:
             # print('Assign Idx: '+str(idx)+", val:" + str(newval))
             oldval = self.rawVar[varname].numpy()
-            oldval.flat[idx] = newval
+            oldval[idx] = newval # .flat
             newval = oldval
         self.rawVar[varname].assign(newval)
         return self.rawVar[varname]
@@ -1160,7 +1171,7 @@ class Model:
         for predictionName, measured in dictToFit.items():
             predicted = self.ResultVals[predictionName]
             try:
-                predicted = reduceSumTo(predicted, measured)
+                predicted = reduceSumTo(tf.squeeze(predicted), tf.squeeze(measured))
             except ValueError:
                 print('Predicted: ' + predictionName)
                 print('Predicted shape: ' + str(np.array(predicted.shape)))
@@ -1268,9 +1279,15 @@ class Model:
                 self.Var[name].assign(self.Var[name] * relDist)
                 self.Distorted[name] = var.numpy()
 
-    def fit(self, data_dict, Tmax, NIter=50, otype='L-BFGS', oparam={"learning_rate": None}, verbose=False, lossScale=None):
+    def regTV(self, weight, var, lossFn):
+        return lambda: lossFn() + weight() * tf.reduce_sum(tf.abs(var()[1:]-var()[:-1]))
+
+    def fit(self, data_dict, Tmax, NIter=50, otype='L-BFGS', oparam={"learning_rate": None},
+            verbose=False, lossScale=None, FitStart=0, FitEnd=1e10, regularizations=None):
         # if "normFac" not in oparam:
         #     oparam["normFac"] = "max"
+        if regularizations is None:
+            regularizations = self.Regularizations
         if self.FitButton is not None:
             self.FitButton.style.button_color = 'red'
         for avar in self.FitVars:
@@ -1283,15 +1300,25 @@ class Model:
         if "learning_rate" not in oparam:
             oparam["learning_rate"] = None
 
+        if self.FitOptimLambdaWidget is not None: # overwrite call choice for method
+            oparam["learning_rate"] = self.FitOptimLambdaWidget.value
+        if self.FitStartWidget is not None:
+            FitStart = self.FitStartWidget.value
+        if self.FitStopWidget is not None:
+            FitEnd = self.FitStopWidget.value
+
         self.Measurements['measured'] = {}
         for predictionName, measured in data_dict.items():
             data_dict[predictionName] = tf.constant(measured, CalcFloatStr)
             self.Measurements['measured'][predictionName] = data_dict[predictionName]  # save as measurement for plot
 
+        if self.FitOptimChoiceWidget is not None: # overwrite call choice for method
+            otype = self.FitOptimChoiceWidget.options[self.FitOptimChoiceWidget.value][0]
+
         if self.FitLossChoiceWidget is not None:
             oparam['noiseModel'] = self.FitLossChoiceWidget.options[self.FitLossChoiceWidget.value][0]
             # print('rebuilt model with noise Model: '+oparam['noiseModel'])
-            loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
+            loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam, FitStart=FitStart, FitEnd=FitEnd)
         else:
             loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
 
@@ -1305,6 +1332,14 @@ class Model:
             lossScale = 1.0
         result_dict = lambda: loss_fn()[1]
         progression_dict = lambda: loss_fn()[2]
+
+        for reg in regularizations:
+            regN = reg[0]
+            weight = self.Var[reg[1]]
+            var = self.Var[reg[2]]
+            if regN == "TV":
+                loss_fnOnly = self.regTV(weight, var, loss_fnOnly)
+
         self.Loss = loss_fnOnly
 
         opt = optimizer(loss_fnOnly, otype=otype, oparam=oparam, NIter=NIter, var_list=FitVars, verbose=verbose)
@@ -1319,6 +1354,9 @@ class Model:
         else:
             res = loss_fnOnly()
             print("Loss is: " + str(res.numpy()))
+            if np.isnan(res.numpy()):
+                print('Aborting')
+                return None,None
             if self.FitLossWidget is not None:
                 self.FitLossWidget.clear_output()
                 with self.FitLossWidget:
@@ -1387,7 +1425,7 @@ class Model:
             else:
                 rd = list(range(toPlot.ndim))  # choose all dimensions
             for d in dims:
-                if d == "time":
+                if d == "time" or d == 0:
                     d = 0
                     labels.append("time")
                 else:
@@ -1410,7 +1448,7 @@ class Model:
             toggles the plot mode between cumulative (points) and non-cumulative (bars) plots.
             both plots use the same underlying data, which is replaced but the other plot is hidden.
         """
-        from bokeh.plotting import Figure
+        from bokeh.plotting import Figure, ColumnDataSource
         from bokeh.io.notebook import CommsHandle
         self.plotCumul = val['new']
         for fn, f in self.DataDict.items():
@@ -1423,16 +1461,26 @@ class Model:
                     else:
                         r.visible = not self.plotCumul
                 # print('cleared renderer of figure '+fn+' named: '+f.name)
+            #if isinstance(f, ColumnDataSource):
+            #    if fn.startswith(cumulPrefix):
+            #        if not self.plotCumul:
+            #            f.data['y'] = None
+            #    else:
+            #        if self.plotCumul:
+            #            f.data['y'] = None
 
-    def plotB(self, Figure, x, toPlot, name, color=None, line_dash=None, withDots=False, useBars=True):
+    def plotB(self, Figure, x, toPlot, name, color=None, line_dash=None, withDots=False, useBars=True, allowCumul=True):
         # create a column data source for the plots to share
         from bokeh.models import ColumnDataSource
 
         myPrefix = '_'
-        if self.plotCumul:
+        if self.plotCumul and allowCumul is True:
             toPlot = np.cumsum(toPlot, 0)
             useBars = False
             myPrefix = cumulPrefix
+            mylegend = name + "_cumul"
+        else:
+            mylegend = name
             # print('Cumul: set useBars to False')
 
         if isinstance(x, pd.core.indexes.datetimes.DatetimeIndex):
@@ -1441,7 +1489,6 @@ class Model:
             msPerDay = 0.6
         if myPrefix + name not in self.DataDict:
             # print('replotting: '+name)
-            self.DataDict[myPrefix + name] = 'was plotted'
             if name not in self.DataDict:
                 source = ColumnDataSource(data=dict(x=x, y=toPlot))
                 self.DataDict[name] = source
@@ -1449,29 +1496,28 @@ class Model:
                 # print('Updating y-data of: ' + name)
                 self.DataDict[name].data['y'] = toPlot
                 source = self.DataDict[name]
-            if self.plotCumul:
-                mylegend = name + "_cumul"
-            else:
-                mylegend = name
+
             if useBars:
                 if withDots:
-                    r = Figure.circle('x', 'y', line_width=1.5, alpha=0.9, color=color, source=source, name=name)
+                    r = Figure.circle('x', 'y', line_width=1.5, alpha=0.9, color=color, source=source, name=myPrefix + name)
                     r.visible = True
-                    r = Figure.vbar('x', top='y', width=msPerDay, alpha=0.6, color=color, source=source, legend_label=mylegend, name=name)
+                    r = Figure.vbar('x', top='y', width=msPerDay, alpha=0.6, color=color, source=source, legend_label=mylegend, name=myPrefix + name)
                     r.visible = True
                 else:
-                    r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color, line_dash=line_dash, legend_label=mylegend, source=source, name=name)
+                    r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color, line_dash=line_dash, legend_label=mylegend, source=source, name=myPrefix + name)
                     r.visible = True
             else:
                 if withDots:
-                    r = Figure.circle('x', 'y', line_width=1.5, alpha=0.8, color=color, source=source, name=name)
+                    r = Figure.circle('x', 'y', line_width=1.5, alpha=0.8, color=color, source=source, name=myPrefix + name)
                     r.visible = True
-                r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color, line_dash=line_dash, legend_label=mylegend, source=source, name=name)
+                r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color, line_dash=line_dash, legend_label=mylegend, source=source, name=myPrefix + name)
                 r.visible = True
             # print('First plot of: '+name)
         else:
             # print('Updating y-data of: '+name)
             self.DataDict[name].data['y'] = toPlot
+        self.DataDict[myPrefix + name] = self.DataDict[name]
+        Figure.legend.click_policy = "hide"
 
     def getDates(self, Dates, toPlot):
         if Dates is None:
@@ -1482,7 +1528,8 @@ class Model:
 
     def showResultsBokeh(self, title='Results', xlabel='time step', Scale=False, xlim=None, ylim=None,
                          ylabel='probability', dims=None, legendPlacement='upper left', Dates=None, offsetDay=0, logY=True,
-                         styles=['dashed', 'solid', 'dotted', 'dotdash', 'dashdot'], figsize=None, subPlot=None, dictToPlot=None, oneMinus=None):
+                         styles=['dashed', 'solid', 'dotted', 'dotdash', 'dashdot'], figsize=None, subPlot=None,
+                         dictToPlot=None, initMinus=None, allowCumul=True):
         from bokeh.plotting import figure  # output_file,
         from bokeh.palettes import Dark2_5 as palette
         from bokeh.io import push_notebook, show
@@ -1519,11 +1566,11 @@ class Model:
                 dictFits = dictToPlot()
             else:
                 dictFits = dictToPlot
-        if oneMinus is not None:
-            if isinstance(oneMinus, str):
-                oneMinus = [oneMinus]
+        if initMinus is not None:
+            if isinstance(initMinus, str):
+                initMinus = [initMinus]
         else:
-            oneMinus = []
+            initMinus = []
 
         self.DataDict['_title'] = FigureTitle
         newFigure = False
@@ -1557,13 +1604,13 @@ class Model:
                     colors = itertools.cycle(palette)
                     for d, color in zip(range(toPlot.shape[1]), colors):
                         x = self.getDates(Dates, toPlot)
-                        self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name=resN + "_" + dictN + "_" + labels[0][d], withDots=True, color=color, line_dash=style)
+                        self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name=resN + "_" + dictN + "_" + labels[0][d], withDots=True, color=color, line_dash=style, allowCumul=allowCumul)
                 else:
                     color = next(colors)
                     x = self.getDates(Dates, toPlot)
                     if labels == [] or labels == [[]]:
                         labels = [[dictN]]
-                    self.plotB(self.DataDict[FigureIdx], x, toPlot, name=resN + "_" + dictN + "_" + labels[0][0], withDots=True, color=color, line_dash=style)
+                    self.plotB(self.DataDict[FigureIdx], x, toPlot, name=resN + "_" + dictN + "_" + labels[0][0], withDots=True, color=color, line_dash=style, allowCumul=allowCumul)
             n += 1
         for dictN, toPlot in dictFits.items():
             if (subPlot is not None) and (dictN not in subPlot):
@@ -1571,22 +1618,26 @@ class Model:
             if callable(toPlot):  # the Var dictionary contains callable variables
                 toPlot = toPlot()
             style = styles[n % len(styles)]
+            if dictN in initMinus:
+                V0 = 1.0
+                if dictN in self.State:
+                    V0 = self.State[dictN]().numpy()
+                # print('Showing '+dictN+' V0 is '+str(V0))
+                toPlot = V0 - toPlot
+                dictN = '('+dictN+'_0-' + dictN+')'
             toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
             toPlot = np.squeeze(toPlot)
-            if dictN in oneMinus:
-                toPlot = 1.0 - toPlot
-                dictN = '1-' + dictN
             if Scale is not None:
                 toPlot = toPlot * Scale
             if toPlot.ndim > 1:
                 colors = itertools.cycle(palette)
                 for d, color in zip(range(toPlot.shape[1]), colors):
                     x = self.getDates(Dates, toPlot)
-                    self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name="Fit_" + dictN + "_" + labels[0][d], color=color, line_dash=style)
+                    self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name="Fit_" + dictN + "_" + labels[0][d], color=color, line_dash=style, allowCumul=allowCumul)
             else:
                 color = next(colors)
                 x = self.getDates(Dates, toPlot)
-                self.plotB(self.DataDict[FigureIdx], x, toPlot, name="Fit_" + dictN, color=color, line_dash=style)
+                self.plotB(self.DataDict[FigureIdx], x, toPlot, name="Fit_" + dictN, color=color, line_dash=style, allowCumul=allowCumul)
         # if xlim is not None:
         #     plt.xlim(xlim[0],xlim[1])
         # if ylim is not None:
@@ -1668,7 +1719,7 @@ class Model:
             sumStates = sumStates + np.sum(state.numpy(), axis=sumcoords)
         return sumStates
 
-    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, 1], MinusOne=[], legendPlacement='upper left', Dates=None,
+    def showStates(self, title='States', exclude={}, xlabel='time step', ylabel='probability', dims=None, dims2d=[0, -1], MinusOne=[], legendPlacement='upper left', Dates=None,
                    offsetDay=0, logY=False, xlim=None, ylim=None, figsize=None):
         if logY:
             plot = plt.semilogy
@@ -1769,14 +1820,30 @@ class Model:
             # print('removed '+name)
             self.FitVars.remove(name)
 
-    def assignToWidget(self, idx, varN=None, widget=None):
+    def idxFromDropList(self, varshape, dropWidgets):
+        varshape = list(varshape)
+        myindex = len(varshape) * [0, ]  # empty list to index
+        idxnum = 0
+        for d, s in zip(range(len(varshape)), varshape):
+            if s > 1:
+                myindex[d] = dropWidgets[idxnum].value
+                idxnum += 1
+        idx = tuple(myindex)
+        return idx
+
+    def assignToWidget(self, idx, allDrop=None, varN=None, widget=None):
+        """
+            This function assignes a new value to the value widget taking the index from the drop widgets
+        """
         if varN in self.Var:
-            val = np.squeeze(self.Var[varN]())[idx['new']]
+            myvar = self.Var[varN]()
         else:
-            val = np.squeeze(self.lossWeight[varN]())[idx['new']]
+            myvar = self.lossWeight[varN]()
+        myidx = self.idxFromDropList(myvar.shape, allDrop)
+        val = myvar[myidx] # idx['new']
         self.adjustMinMax(widget, val)
         widget.value = val
-        # print('assignToWidget, varN: '+varN+', idx='+str(idx['new'])+', val:'+str(val)+', widget: '+widget.description)
+        #print('assignToWidget, varN: '+varN+', idx='+str(idx['new'])+', val:'+str(val)+', widget: '+widget.description)
 
     def adjustMinMax(self, widget, val):
         # print('AdjustMinMax: '+str(widget.min)+', val. '+ str(val) +', max:'+str(widget.max))
@@ -1785,10 +1852,11 @@ class Model:
             lval = np.log10(val)
         else:
             lval = val
-        if lval <= widget.min + (widget.max - widget.min) / 10.0:
-            widget.min = lval - 1.0
-        if lval >= widget.max - (widget.max - widget.min) / 10.0:
-            widget.max = lval + 1.0
+        if isinstance(widget, widgets.FloatLogSlider) or isinstance(widget, widgets.FloatSlider):
+            if lval <= widget.min + (widget.max - widget.min) / 10.0:
+                widget.min = lval - 1.0
+            if lval >= widget.max - (widget.max - widget.min) / 10.0:
+                widget.max = lval + 1.0
         # print('post AdjustMinMax: '+str(widget.min)+', val. '+ str(val) +', max:'+str(widget.max))
 
     def updateAllWidgets(self, dummy=None):
@@ -1796,25 +1864,27 @@ class Model:
         for varN, w in self.WidgetDict.items():
             newval = self.Var[varN]()
             if isinstance(w, tuple):
-                idx = w[1].value
+                idx = self.idxFromDropList(newval.shape, w[1]) # w[1].value
                 for n in range(np.squeeze(newval).shape[0]):
                     val = np.squeeze(newval)[n]
                     self.adjustMinMax(w[0], val)
-                w[0].value = np.squeeze(newval)[idx]
+                w[0].value = newval[idx] # np.squeeze(
             else:
                 val = newval
                 w.value = val
 
     def getValueWidget(self, myval, varN):
         from ipywidgets import widgets, Layout
-        if self.VarDisplayLog[varN]:
-            mymin = np.round(np.log10(myval)) - 1
-            mymax = np.round(np.log10(myval)) + 1
-            valueWidget = widgets.FloatLogSlider(value=myval, base=10, min=mymin, max=mymax)
-        else:
-            mymin = 0.0
-            mymax = myval * 3.0
-            valueWidget = widgets.FloatSlider(value=myval, min=mymin, max=mymax)
+        item_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', width='50%')
+        valueWidget = widgets.FloatText(value=myval, layout = item_layout)
+        # if self.VarDisplayLog[varN]:
+        #     mymin = np.round(np.log10(myval)) - 1
+        #     mymax = np.round(np.log10(myval)) + 1
+        #     valueWidget = widgets.FloatLogSlider(value=myval, base=10, min=mymin, max=mymax)
+        # else:
+        #     mymin = 0.0
+        #     mymax = myval * 3.0
+        #     valueWidget = widgets.FloatSlider(value=myval, min=mymin, max=mymax)
         return valueWidget
 
     def updateWidgetFromDropDict(self, idx, dict, dropWidget, valWidget):
@@ -1826,20 +1896,23 @@ class Model:
         dict[dictKey].assign(newval.new)
 
     def dictWidget(self, dict, description):
-        from ipywidgets import widgets
+        from ipywidgets import widgets, Layout
         import functools
         options = [(d, n) for d, n in zip(dict.keys(), range(len(dict.keys())))]
         dropWidget = widgets.Dropdown(options=options, indent=False, value=0, description=description)
-        valueWidget = widgets.FloatText(value=dict[options[0][0]].numpy())
+        item_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', width='100%')
+        box_layout = Layout(display='flex', flex_flow='column', border='solid 2px', align_items='stretch', width='40%')
+        valueWidget = widgets.FloatText(value=dict[options[0][0]].numpy(), layout=item_layout)
         # valueWidget = widgets.HBox((inFitWidget,valueWidget))
         dropWidget.observe(functools.partial(self.updateWidgetFromDropDict, dict=dict, dropWidget=dropWidget, valWidget=valueWidget), names='value')
         # showResults= showResults
         valueWidget.observe(functools.partial(self.assignToDictVal, dict=dict, dropWidget=dropWidget), names='value')
-        widget = widgets.HBox((dropWidget, valueWidget))
+        # widget = widgets.HBox((dropWidget, valueWidget))
+        widget = widgets.Box((dropWidget, valueWidget), layout=box_layout)
         # self.WidgetDict[varN] = (valueWidget, dropWidget)
         return widget
 
-    def getGUI(self, fitVars=None, nx=3, showResults=None, doFit=None):
+    def getGUI(self, fitVars=None, nx=3, showResults=None, doFit=None, Dates=None):
         from ipywidgets import widgets, Layout
         from IPython.display import display
         import functools
@@ -1859,26 +1932,37 @@ class Model:
         for varN in fitVars:
             var = self.Var[varN]().numpy()
             if var.ndim > 0 and np.prod(np.array(var.shape)) > 1:
-                mydim = np.nonzero(np.array(var.shape) - 1)[0][0]
-                ax = self.RegisteredAxes[-mydim - 1]
-                if ax.Labels is None:
-                    options = [(str(d), d) for d in range(np.prod(ax.shape))]
-                else:
-                    options = [(ax.Labels[d], d) for d in range(len(ax.Labels))]
-                inFitWidget = widgets.Checkbox(value=(varN in self.FitVars), indent=False, layout=tickLayout, description=ax.name)
+                # mydim = var.ndim - np.nonzero(np.array(var.shape) - 1)[0][0]
+                allDrop = []
+                for mydim in range(len(var.shape)):
+                    if var.shape[mydim]>1:
+                        if mydim == 0:
+                            regdim = -1
+                        else:
+                            regdim = var.ndim-mydim - 1
+                        ax = self.RegisteredAxes[regdim]
+                        if ax.Labels is None:
+                            options = [(str(d), d) for d in range(np.prod(ax.shape))]
+                        else:
+                            options = [(ax.Labels[d], d) for d in range(len(ax.Labels))]
+                        drop = widgets.Dropdown(options=options, indent=False, value=0, description=ax.name)
+                        allDrop.append(drop)
+                # dropWidget = widgets.Box(allDrop, display='flex', layout=box_layout)
+
+                inFitWidget = widgets.Checkbox(value=(varN in self.FitVars), indent=False, layout=tickLayout, description=varN)
                 inFitWidget.observe(functools.partial(self.toggleInFit, name=varN), names='value')
-                drop = widgets.Dropdown(options=options, indent=False, value=0)
-                dropWidget = widgets.HBox((inFitWidget, drop), display='flex', layout=item_layout)
-                valueWidget = self.getValueWidget(np.squeeze(var)[0], varN)
-                valueWidgetBox = widgets.HBox((widgets.Label(varN), valueWidget), layout=item_layout)
+
+                valueWidget = self.getValueWidget(np.squeeze(var.flat)[0], varN)
+                valueWidgetBox = widgets.HBox((inFitWidget, valueWidget), layout=item_layout) # widgets.Label(varN),
                 # valueWidget = widgets.HBox((inFitWidget,valueWidget))
-                widget = widgets.Box((dropWidget, valueWidgetBox), layout=box_layout)
+                widget = widgets.Box(allDrop + [valueWidgetBox], layout=box_layout)
                 # do NOT use lambda below, as it does not seem to work in a for loop here!
                 # valueWidget.observe(lambda val: self.assignNewVar(varN, val.new, idx=drop.value), names='value')
-                drop.observe(functools.partial(self.assignToWidget, varN=varN, widget=valueWidget), names='value')
+                for drop in allDrop:
+                    drop.observe(functools.partial(self.assignToWidget, allDrop=allDrop, varN=varN, widget=valueWidget), names='value')
                 # showResults= showResults
-                valueWidget.observe(functools.partial(self.assignWidgetVar, varname=varN, idx=drop), names='value')
-                self.WidgetDict[varN] = (valueWidget, drop)
+                valueWidget.observe(functools.partial(self.assignWidgetVar, varname=varN, idx=allDrop), names='value')
+                self.WidgetDict[varN] = (valueWidget, allDrop)
                 px += 1
             else:
                 inFitWidget = widgets.Checkbox(value=(varN in self.FitVars), indent=False, layout=tickLayout, description=varN)
@@ -1926,12 +2010,30 @@ class Model:
             widget = widgets.HBox(lastRow)
             display(widget)
             lastRow = []
-            nIterWidget = widgets.IntText(value=100, description='NIter:', layout=small_item_layout)
+            options = [(self.FitOptimChoices[d], d) for d in range(len(self.FitOptimChoices))]
+            self.FitOptimChoiceWidget = widgets.Dropdown(options = options, indent=False, value=0)
+            self.FitOptimLambdaWidget = widgets.FloatText(value=1.0, layout=item_layout, indent=False, description='LearningRate')
+            widget = widgets.Box((self.FitOptimChoiceWidget, self.FitOptimLambdaWidget), layout=box_layout)
+            lastRow.append(widget)
+            nIterWidget = widgets.IntText(value=100, description='NIter:', indent=False, layout=small_item_layout)
+            # else:
+            #     self.FitOptimLambdaWidget = widgets.IntText(value=0, indent=False, description='StartDay')
+            #     lastRow.append(drop)
+            #     self.FitOptimLambdaWidget = widgets.IntText(value=-1, indent=False, description='StopDay')
+            #     lastRow.append(drop)
+
             doFitWidget.on_click(lambda b: self.updateAllWidgets(doFit(NIter=nIterWidget.value)))
             lastRow.append(nIterWidget)
             weightWidget = self.dictWidget(self.lossWeight, description='Weights:')
             lastRow.append(weightWidget)
             lossWidget = widgets.Output(description='Loss:', layout=output_layout)
+            if Dates is not None:
+                options = [(Dates[d], d) for d in range(len(Dates))]
+                self.FitStartWidget = widgets.Dropdown(options=options, indent=False, description='StartDate', value=0)
+                self.FitStopWidget = widgets.Dropdown(options=options, indent=False, description='StopDate', value=len(Dates) - 4)
+                widget = widgets.Box((self.FitStartWidget,self.FitStopWidget), layout=box_layout)
+                lastRow.append(widget)
+
             self.FitLossWidget = lossWidget
             lastRow.append(lossWidget)
         else:
