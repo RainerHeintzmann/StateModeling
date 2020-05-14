@@ -25,16 +25,18 @@ class CoronaDelayModel(stm.Model):
             firstInf[d] = np.nonzero(AllMeasured['Cases'][:,d]>0)[0][0]
         infective_time_init = 3.0 # day in 'Disease Progression' of most probably infecting someone else
         infective_sigma_init = 1.8 # spread in 'Disease Progression' of most probably infecting someone else
-        death_rate_init = 0.004 # rate of death
-        death_time_init = 16.2 # day of 'Disease Progression' when death is most probable
-        death_sigma_init = 2.8
         detect_t0Init = 5.0 # time when disease is typically detected
         detect_sigmaInit = 2.8
         detect_Init = 0.1 # chance that disease is finally detected (t-> inf)
 
-        hospital_t0Init = 14.0 # time when disease is typically detected
-        hospital_sigmaInit = 7.3
-        hospitalization_Init = 0.1 # chance that disease is finally detected (t-> inf)
+        # Values determined from fitting Thuringian data:
+        death_rate_init = 0.0071 # rate of death
+        death_time_init = 27.83 # day of 'Disease Progression' when death is most probable
+        death_sigma_init = 7.92
+
+        hospital_t0Init = 11.86 # time when disease is typically detected
+        hospital_sigmaInit = 5.20
+        hospitalization_Init = 0.0203 # chance that disease is finally detected (t-> inf)
 
         infect_first_time_init = (1.0 + firstInf).astype(np.float32) # AllMeasured['Dates'].to_list().index('21.02.2020')+0.2   # day of first infection in the district
         infect_first_init = (1.0 / self.PopSum/detect_Init).astype(np.float32) # Amount of first infection  (1.0 would be 5e-7 )
@@ -80,8 +82,8 @@ class CoronaDelayModel(stm.Model):
         detection = lambda: detect() * self.Axes['Disease Progression'].initGaussian(detect_t0(), detect_sigma()) # new cases is an event. Therefore Gaussian
         self.addResult('cases', lambda State: self.PopSum * tf.reduce_sum(State['I'] * detection(),-2, keepdims=True))  # Only the new cases
 
-        measured = np.squeeze(AllMeasured['Cases']) # / self.PopSum
-        measuredDead = np.squeeze(AllMeasured['Dead'])  #/ self.PopSum
+        measured = AllMeasured['Cases'] # / self.PopSum
+        measuredDead = AllMeasured['Dead']  #/ self.PopSum
         self.FitDict = {'cases': measured, 'deaths': measuredDead}
 
         if "Hospitalized" in AllMeasured.keys():
@@ -90,7 +92,7 @@ class CoronaDelayModel(stm.Model):
             hospital = self.newVariables({'hospital': hospitalization_Init})  # rate of final detection
             hospitalization = lambda: hospital() * self.Axes['Disease Progression'].initGaussian(hospital_t0(), hospital_sigma())  # new cases is an event. Therefore Gaussian
             self.addResult('hospitalization', lambda State: self.PopSum * tf.reduce_sum(State['I'] * hospitalization(),-2, keepdims=True))  # Only the new cases
-            self.FitDict['hospitalization'] = np.squeeze(AllMeasured['Hospitalized']) # / self.PopSum)
+            self.FitDict['hospitalization'] = AllMeasured['Hospitalized'] # / self.PopSum)
 
         # self.FitDict = {'deaths': measuredDead}
         self.newVariables({'lambdaTVR': 0.0001})

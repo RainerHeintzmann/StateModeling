@@ -17,8 +17,8 @@ if False:
     AllMeasured = preprocessData(AllMeasured, ReduceDistricts=None, SumDistricts=True, SumAges=True, SumGender=True)
 else:
     AllMeasured = loadData(r"COVID-19 Linelist 2020_05_11.xlsx", useThuringia = True, pullData=False, lastDate='09.05.2020')
-    if True:
-        ExampleRegions = ['SK Jena', 'LK Greiz', 'SK Gera'] # 'SK Gera',
+    if False:
+        ExampleRegions = ['SK Jena', 'LK Greiz', 'SK Gera', 'SK Sonneberg'] # 'SK Gera',
         AllMeasured = preprocessData(AllMeasured, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
     else:
         AllMeasured = preprocessData(AllMeasured, ReduceDistricts=None, SumDistricts=True, SumAges=True, SumGender=True)

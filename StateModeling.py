@@ -1078,10 +1078,19 @@ class Model:
             # the line below advances the queue
             State[queueN] = tf.concat((dst, subSlice(dstState, -axnum, None, -1)), axis=-axnum)
 
+    def removeDims(self, val, ndims):
+        extraDims = len(val.shape) - ndims
+        if extraDims > 0:
+            dimsToSqueeze = tuple(np.arange(extraDims))
+            val = tf.squeeze(val, axis=dimsToSqueeze)
+        return val
+
     def recordResults(self, State, Results):
         # record all States
+        NumAx = len(self.RegisteredAxes)
         for vName, val in State.items():
             # if vName in self.State:
+            val = self.removeDims(val, NumAx)
             if vName not in self.Progression:
                 self.Progression[vName] = [val]
             else:
@@ -1091,6 +1100,7 @@ class Model:
             # raise ValueError('detected a State, which is not in States.')
 
         for resName, res in Results.items():
+            res = self.removeDims(res, NumAx)
             if resName not in self.ResultVals:
                 self.ResultVals[resName] = [res]
             else:
@@ -1099,9 +1109,7 @@ class Model:
         # now record all calculated result values
         for resName, calc in self.ResultCalculator.items():
             res = calc(State)
-            # if len(res.shape) == self.maxAxes:
-            # sqax = list(range(self.maxAxes - self.curAxis + 1))
-            # res = tf.squeeze(res, sqax)
+            res = self.removeDims(res, NumAx)
             if resName not in self.ResultVals:
                 self.ResultVals[resName] = [res]
             else:
@@ -1171,7 +1179,8 @@ class Model:
         for predictionName, measured in dictToFit.items():
             predicted = self.ResultVals[predictionName]
             try:
-                predicted = reduceSumTo(tf.squeeze(predicted), tf.squeeze(measured))
+                predicted = reduceSumTo(predicted, measured)
+                # predicted = reduceSumTo(tf.squeeze(predicted), tf.squeeze(measured))
             except ValueError:
                 print('Predicted: ' + predictionName)
                 print('Predicted shape: ' + str(np.array(predicted.shape)))
@@ -1758,11 +1767,12 @@ class Model:
                         plt.title("State " + varN)
                         toPlot2, labels = self.selectDims(toPlot, dims=dims2d)
                         toPlot2 = np.squeeze(toPlot2)
-                        plt.imshow(toPlot2, aspect="auto")
-                        # plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
-                        plt.xlabel(dims2d[1])
-                        plt.xticks(range(toPlot2.shape[1]), labels[1], rotation=70)
-                        plt.colorbar()
+                        if toPlot2.ndim > 1:
+                            plt.imshow(toPlot2, aspect="auto")
+                            # plt.xlabel(self.RegisteredAxes[self.maxAxes - pdims[0][1]].name)
+                            plt.xlabel(dims2d[1])
+                            plt.xticks(range(toPlot2.shape[1]), labels[1], rotation=70)
+                            plt.colorbar()
                     toPlot, labels = self.selectDims(toPlot, dims=dims)
                     myLegend = myLegend + " (summed)"
                 if varN in MinusOne:
