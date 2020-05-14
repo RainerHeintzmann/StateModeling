@@ -42,7 +42,7 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
             # can be checked with
             # https://www.rki.de/DE/Content/InfAZ/N/Neuartiges_Coronavirus/Situationsberichte/2020-04-16-de.pdf?__blob=publicationFile
         else:
-            AllMeasured = np.load(basePath + r'\Data\AllMeasured.npy', allow_pickle=True).item()
+            AllMeasured = np.load(basePath + sep+r'Data'+sep+'AllMeasured.npy', allow_pickle=True).item()
         AllMeasured['Region'] = "Germany"
     AgePop = np.array([(3.88 + 0.78), 6.62, 2.31 + 2.59 + 3.72 + 15.84, 23.9, 15.49, 7.88], stm.CalcFloatStr)
     AgePop /= np.sum(AgePop)
@@ -51,9 +51,9 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
     AllMeasured['Population'] = np.stack((PopM, PopW),-1)
 
     # mobility only to 11.04.2020:
-    mobility = pd.read_csv(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\Global_Mobility_Report.csv", low_memory=False)
-    mobdat = mobility[mobility['sub_region_1'] == "Thuringia"]
-    AllMeasured['mobility'] = mobdat
+    #mobility = pd.read_csv(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\Global_Mobility_Report.csv", low_memory=False)
+    #mobdat = mobility[mobility['sub_region_1'] == "Thuringia"]
+    #AllMeasured['mobility'] = mobdat
 
     return AllMeasured
 
