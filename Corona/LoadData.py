@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import StateModeling as stm
 import matplotlib.pyplot as plt
+from os.path import sep
 
 def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None):
 
@@ -33,10 +34,10 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
             # mobility = np.array(mobility[1:], dtype=np.float)
 
             AllMeasured, day1, numdays = imputation(data)
-            df = pd.read_excel(basePath + r"\Examples\bev_lk.xlsx")  # support information about the population
+            df = pd.read_excel(basePath + sep + r"Examples"+sep+"bev_lk.xlsx")  # support information about the population
             # AllMeasured, day1, numdays = cumulate(data, df)
             AllMeasured.update(addOtherData(data, df, day1, numdays))  # adds the supplemental information
-            np.save(basePath + r'\Data\AllMeasured', AllMeasured)
+            np.save(basePath + sep+ r'Data'+sep+'AllMeasured', AllMeasured)
 
             # can be checked with
             # https://www.rki.de/DE/Content/InfAZ/N/Neuartiges_Coronavirus/Situationsberichte/2020-04-16-de.pdf?__blob=publicationFile
