@@ -42,7 +42,7 @@ class CoronaDelayModel(stm.Model):
         infect_first_init = (1.0 / self.PopSum/detect_Init).astype(np.float32) # Amount of first infection  (1.0 would be 5e-7 )
         infect_first_time_sigma = 1.0
 
-        self.addAxis("District", entries=AllMeasured['Cases'].shape[1],labels=AllMeasured['LKs'])
+        self.addAxis("District", entries=AllMeasured['Cases'].shape[-1],labels=AllMeasured['LKs'])
         self.addAxis("Disease Progression", entries=35, queue=True)
 
         self.newState(name='S', axesInit={"District": AllMeasured['Population']/self.PopSum})

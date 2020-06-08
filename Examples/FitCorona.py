@@ -12,18 +12,20 @@ from Corona.CoronaModel import CoronaModel, plotTotalCases, plotRaw
 #data = loadData(r"COVID-19 Linelist 2020_04_23.xlsx", useThuringia = True, pullData=False)
 # data = loadData(r"COVID-19 Linelist 2020_04_30.xlsx", useThuringia = True, pullData=False)
 # AllMeasured = preprocessData(AllMeasured)
-AllMeasured = loadData(useThuringia = False, pullData=True)
+AllMeasured = loadData(useThuringia = False, pullData = False)
 ExampleRegions = ['SK Jena', 'LK Greiz'] # 'SK Gera',
 AllMeasured = preprocessData(AllMeasured, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
-plotRaw(AllMeasured)
+# plotRaw(AllMeasured)
 
+# M = CoronaDelayModel(AllMeasured, Tmax = AllMeasured['Cases'].shape[0], lossWeight=lossWeights)
 M = CoronaModel(AllMeasured)
 
-mobdat = AllMeasured['mobility']
-mobdate = mobdat['date'].to_numpy()
-plt.figure('Retail and recreation');plt.plot(mobdat['retail_and_recreation_percent_change_from_baseline'].to_numpy())
-offsetDay=0; plt.xticks(range(offsetDay, len(mobdate), 7), [date for date in mobdate[offsetDay:-1:7]], rotation="vertical")
-plt.ylabel('Percent Change'); plt.tight_layout()
+if False:
+    mobdat = AllMeasured['mobility']
+    mobdate = mobdat['date'].to_numpy()
+    plt.figure('Retail and recreation');plt.plot(mobdat['retail_and_recreation_percent_change_from_baseline'].to_numpy())
+    offsetDay=0; plt.xticks(range(offsetDay, len(mobdate), 7), [date for date in mobdate[offsetDay:-1:7]], rotation="vertical")
+    plt.ylabel('Percent Change'); plt.tight_layout()
 
 Tmax = 120
 
@@ -37,7 +39,12 @@ M.toFit(['r0', 'h', 'aT0', 'aBase', 'I0', 'd', 'rd', 'T0', 'q']) # 'q',
 if AllMeasured['Cases'].shape[-2] > 1:
     M.appendToFit(['Age Border', 'Age Sigma'])
 
-g = M.getGUI()
+# g = M.getGUI()
+
+lossWeights = {'cases':0.1,'deaths': 0.1}
+
+M.DataDict={}
+g = M.getGUI(showResults=M.showSimRes, doFit=M.doFit, Dates = list(AllMeasured['Dates']))
 
 
 PopSum = np.sum(AllMeasured['Population'])

@@ -12,18 +12,26 @@ from bokeh.io import push_notebook, show, output_notebook
 import ipywidgets as widgets
 from ipywidgets import interact, interact_manual
 
-if False:
+if True:
     AllMeasured = loadData(useThuringia = False, pullData=False)
-    AllMeasured = preprocessData(AllMeasured, ReduceDistricts=None, SumDistricts=True, SumAges=True, SumGender=True)
+    ExampleRegions = ['SK Jena', 'LK Greiz', 'SK Gera', 'LK Sonneberg']  # 'SK Gera',
+    AllMeasured = preprocessData(AllMeasured, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
+    # AllMeasured['Cases'] = np.transpose(AllMeasured['Cases'],(0,2,3,1))
+    # AllMeasured['Dead'] = np.transpose(AllMeasured['Dead'],(0,2,3,1))
 else:
     AllMeasured = loadData(r"COVID-19 Linelist 2020_05_11.xlsx", useThuringia = True, pullData=False, lastDate='09.05.2020')
-    if False:
-        ExampleRegions = ['SK Jena', 'LK Greiz', 'SK Gera', 'SK Sonneberg'] # 'SK Gera',
+    if True:
+        ExampleRegions = ['SK Jena', 'LK Greiz', 'SK Gera', 'LK Sonneberg'] # 'SK Gera',
         AllMeasured = preprocessData(AllMeasured, ReduceDistricts=ExampleRegions, SumDistricts=False, SumAges=True, SumGender=True)
     else:
         AllMeasured = preprocessData(AllMeasured, ReduceDistricts=None, SumDistricts=True, SumAges=True, SumGender=True)
 
-M = CoronaDelayModel(AllMeasured, Tmax = 150, lossWeight={'cases':1.0, 'deaths': 10.0})
+AllMeasured['Cases'] = np.squeeze(AllMeasured['Cases'])[:,np.newaxis,np.newaxis,:]
+AllMeasured['Dead'] = np.squeeze(AllMeasured['Dead'])[:,np.newaxis,np.newaxis,:]
+AllMeasured['Population'] = np.squeeze(AllMeasured['Population'])
+print(AllMeasured['Cases'].shape)
+
+M = CoronaDelayModel(AllMeasured, Tmax = AllMeasured['Cases'].shape[0], lossWeight={'cases':1.0, 'deaths': 10.0})
 
 tf.config.experimental_run_functions_eagerly(True)
 M.doFit(0)

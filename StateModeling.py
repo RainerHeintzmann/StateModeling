@@ -234,7 +234,7 @@ def invNormalize(val, normalize, reference):
 
 
 @tf.custom_gradient
-def monotonicPos(val, b2=1.0):
+def monotonicPos(val, b2=1.0):  # can also be called forcePositive
     """
     applies a monotonic transform mapping the full real axis to the positive half space
 
@@ -280,6 +280,21 @@ def invMonotonicPos(invinput, b2=1.0, Eps=0.0):
                               clip_value_max=tf.constant(np.Inf, dtype=CalcFloatStr))  # assertion to obtain only positive input for the initialization
     #    return tf.cast(tfinit - (tf.constant(b2) / tfinit), dtype=CalcFloatStr)  # the inverse of monotonicPos
     return (tf.square(tfinit) - b2) / tfinit  # the inverse of monotonicPos
+
+# def piecewisePos(res):
+#     mask = res>=0
+#     mask2 = ~mask
+#     res2 = 1.0 / (1.0-res(mask2))
+#     res(mask2) = res2; #  this hyperbola has a value of 1, a slope of 1 and a curvature of 2 at zero X
+#     res(mask) = abssqr(res(mask)+0.5)+0.75  # this parabola has a value of 1, a slope of 1  and a curvature of 2 at zero X
+
+# def invPiecewisePos(invinput):
+#     mask=model >= 1.0
+#     mask2 = ~mask
+#     res2=model * 0.0
+#     res2(mask) = sqrt(model(mask) - 0.75)-0.5
+#     res2(mask2) = (model(mask2)-1.0) / model(mask2)
+#     res = afkt(res2)  # the inverse of monotonicPos
 
 
 # def forcePositive(self, State):
@@ -1180,6 +1195,8 @@ class Model:
             predicted = self.ResultVals[predictionName]
             try:
                 predicted = reduceSumTo(predicted, measured)
+                if predicted.shape != measured.shape:
+                    raise ValueError('Shapes of simulated data and measured data have to agree. For Variable: ' + predictionName)
                 # predicted = reduceSumTo(tf.squeeze(predicted), tf.squeeze(measured))
             except ValueError:
                 print('Predicted: ' + predictionName)
@@ -1909,7 +1926,7 @@ class Model:
         from ipywidgets import widgets, Layout
         import functools
         options = [(d, n) for d, n in zip(dict.keys(), range(len(dict.keys())))]
-        dropWidget = widgets.Dropdown(options=options, indent=False, value=0, description=description)
+        dropWidget = widgets.Dropdown(options=options, indent=False, description=description) # value=0,
         item_layout = Layout(display='flex', flex_flow='row', justify_content='space-between', width='100%')
         box_layout = Layout(display='flex', flex_flow='column', border='solid 2px', align_items='stretch', width='40%')
         valueWidget = widgets.FloatText(value=dict[options[0][0]].numpy(), layout=item_layout)

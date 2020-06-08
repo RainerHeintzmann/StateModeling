@@ -6,14 +6,17 @@ import matplotlib.pyplot as plt
 from os.path import sep
 
 def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None):
+    import os
+    basePath = os.getcwd()
+    if basePath.endswith('Examples'):
+        basePath = basePath[:-9]  # to remove the Examples bit
 
     if useThuringia:
         if filename is None:
             filename = r"COVID-19 Linelist 2020_04_22.xlsx"
-        basePath = r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\PetraDickmann"
+        basePathT = r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\PetraDickmann"
         # Thuringia = pd.read_excel(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\COVID-19 Linelist 2020_04_06.xlsx")
-        Thuringia = pd.read_excel(basePath + '\\'+ filename)
-        basePath = r"C:\Users\pi96doc\Documents\Programming\PythonScripts\StateModeling"
+        Thuringia = pd.read_excel(basePathT + sep + filename)
         Thuringia = stripQuotesFromAxes(Thuringia)
         AllMeasured, day1, numdays = binThuringia(Thuringia, lastDate=lastDate)
         # AllMeasured, day1, numdays = imputation(Thuringia)
@@ -23,9 +26,6 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
         AllMeasured.update(addOtherData(Thuringia, df, day1, numdays)) # adds the supplemental information
     else:
         import os
-        basePath = os.getcwd()
-        if basePath.endswith('Examples'):
-            basePath = basePath[:-9]  # to remove the Examples bit
         # r"C:\Users\pi96doc\Documents\Programming\PythonScripts\StateModeling"
         if pullData:
             data = fetch_data.DataFetcher().fetch_german_data()
