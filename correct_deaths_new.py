@@ -2,13 +2,33 @@ import pandas as pd
 import os
 from datetime import datetime, timedelta
 
-def interpolation(days, value, previous=0):
+def linear_interpolation(value: int, days=1, previous=0) -> list:
     daily = (value-previous)/(days+1)
     ret = []
     for i in range(1, days+1):
         ret.append(int((daily*i)+previous))
     return ret
 
+def reorder_dataframe_by_date_and_district(df, start_date, end_date, districts):
+    ret = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote'])
+    #print(df)
+    #print(start_date)
+    #print(end_date)
+    #print(districts)
+    for i in range(0, ((end_date - start_date).days + 1)):
+        #print('hi')
+        for district in districts:
+            the_day = datetime.strftime(start_date + timedelta(days=i), '%Y/%m/%d')
+            #print(the_day)
+            #print(type(the_day))
+            append_df = df[df['Datum'] == the_day][df['Landkreis'] == district]
+            if append_df.empty:
+                continue
+            #print('append_df: ', append_df)
+            ret = ret.append(append_df, ignore_index=True)
+            #print(ret)
+    #print(ret)
+    return ret
 
 files = os.listdir('..' + os.sep + 'RKI-Daten')
 column_order = ('IdBundesland', 'Bundesland', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'AnzahlFall', 'AnzahlTodesfall', 'Meldedatum', 'IdLandkreis', 'Datenstand', 'NeuerFall', 'NeuerTodesfall')
@@ -31,6 +51,11 @@ try:
 except:
     pass
 
+try:
+    files.remove('RKI_COVID19_2020-04-16.csv')
+except:
+    pass
+
 files = sorted(files)
 # DEBUG
 print(files)
@@ -45,12 +70,13 @@ for landkreis in last_data['Landkreis']:
 
 ageGroups = ['A00-A04', 'A05-A14', 'A15-A34', 'A35-A59', 'A60-A79', 'A80+', 'unbekannt']
 
-genders = ['M', 'W', 'unbekannt']
+genders = ['M', 'unbekannt', 'W']
 newDeaths = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote']) #format: Datum, Landkreis, Altersgruppe, Geschlecht, Tote
 append_today_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote']) #format: Datum, Landkreis, Altersgruppe, Geschlecht, Tote
 append_yesterday_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote']) #format: Datum, Landkreis, Altersgruppe, Geschlecht, Tote
+append_inter_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote'])
 
-prev_date = datetime.strptime('2020/02/24', '%Y/%m/%d').date()
+prev_date = datetime.strptime('2020/03/25', '%Y/%m/%d').date()
 
 for file in files:
     print(file)
@@ -61,12 +87,12 @@ for file in files:
     print(data_date)
     data_date_obj = datetime.strptime(data_date, '%Y/%m/%d').date()
     lack_of_data = (data_date_obj - prev_date).days - 1
-    prev_date = data_date_obj
     if lack_of_data:
-        print(lack_of_data - 1)
         yesterday = datetime.strftime(data_date_obj - timedelta(days=1), '%Y/%m/%d')
+        lack_of_data2 = lack_of_data - 1
+        print('Lack of data 2:', lack_of_data2)
     else:
-        print(lack_of_data)
+        print('Lack of data 1:', lack_of_data)
 
     for current_district in landkreise:
         interest_district = data[data['Landkreis'] == current_district]
@@ -95,12 +121,43 @@ for file in files:
                     dead_yesterday = dead - diff
                     append_dict = {'Datum':yesterday, 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':dead_yesterday}
                     append_yesterday_DataFrame = append_yesterday_DataFrame.append(append_dict, ignore_index=True)
+                if lack_of_data2:
+                    #print('Lack of data 2', lack_of_data2)
+                    gap_date = prev_date + timedelta(days=1)
+                    if prev_date == datetime.strptime('2020/02/24', '%Y/%m/%d').date():
+                        interpolation = linear_interpolation(dead_yesterday, days=30)
+                    else:
+                        prev_dead = newDeaths[newDeaths['Datum'] == prev_date.strftime('%Y/%m/%d')][newDeaths['Landkreis'] == current_district][newDeaths['Altersgruppe'] == age][newDeaths['Geschlecht'] == gender]['Tote']
+                        if prev_dead.empty:
+                            continue
+                        prev_dead = int(prev_dead)
+                        interpolation = linear_interpolation(dead_yesterday, lack_of_data2, prev_dead)
+                    for i in range(0, len(interpolation)):
+                        if interpolation[i] == 0:
+                            continue
+                        append_dict = {'Datum':datetime.strftime(gap_date, '%Y/%m/%d'), 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':interpolation[i]}
+                        append_inter_DataFrame = append_inter_DataFrame.append(append_dict, ignore_index=True)
+                        gap_date = gap_date + timedelta(days=1)
 
+    if lack_of_data2:
+        print(append_inter_DataFrame)
+        append_inter_DataFrame = reorder_dataframe_by_date_and_district(append_inter_DataFrame, prev_date + timedelta(days=1), datetime.strptime(yesterday, '%Y/%m/%d').date() - timedelta(days=1), landkreise)
+        print(append_inter_DataFrame)
+        newDeaths = newDeaths.append(append_inter_DataFrame, ignore_index=True)
+        print(newDeaths)
+        append_inter_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote'])
     if lack_of_data:
         newDeaths = newDeaths.append(append_yesterday_DataFrame, ignore_index=True)
         append_yesterday_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote'])
+    lack_of_data2 = 0
     newDeaths = newDeaths.append(append_today_DataFrame, ignore_index=True)
     append_today_DataFrame = append_yesterday_DataFrame
+    #print(data_date_obj)
+    #print(type(data_date_obj))
+    #print(prev_date)
+    #print(type(prev_date))
+    prev_date = data_date_obj
 
+#newDeaths = newDeaths.sort_values(by=['Datum'])
 newDeaths.to_csv('..' + os.sep + 'RKI-Daten' + os.sep + 'Deaths.csv', index=False)
 print(newDeaths)
