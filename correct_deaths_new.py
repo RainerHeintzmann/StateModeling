@@ -2,6 +2,7 @@ import pandas as pd
 import os
 from datetime import datetime, timedelta
 
+# does a linear interpolation between to given values over a given amount of days
 def linear_interpolation(value: int, days=1, previous=0) -> list:
     daily = (value-previous)/(days+1)
     ret = []
@@ -9,6 +10,7 @@ def linear_interpolation(value: int, days=1, previous=0) -> list:
         ret.append(int((daily*i)+previous))
     return ret
 
+# orders a dataframe by firstly date and then district
 def reorder_dataframe_by_date_and_district(df, start_date, end_date, districts):
     ret = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote'])
     #print(df)
@@ -30,10 +32,12 @@ def reorder_dataframe_by_date_and_district(df, start_date, end_date, districts):
     #print(ret)
     return ret
 
-files = os.listdir('..' + os.sep + 'RKI-Daten')
-column_order = ('IdBundesland', 'Bundesland', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'AnzahlFall', 'AnzahlTodesfall', 'Meldedatum', 'IdLandkreis', 'Datenstand', 'NeuerFall', 'NeuerTodesfall')
-column_list = pd.read_csv('..' + os.sep + 'RKI-Daten' + os.sep + 'RKI_COVID19_2020-03-27.csv').columns.to_list()
-column_list.remove('ObjectId')
+files = os.listdir('..' + os.sep + 'RKI-Daten') # files in the data directory
+
+#column_order = ('IdBundesland', 'Bundesland', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'AnzahlFall', 'AnzahlTodesfall', 'Meldedatum', 'IdLandkreis', 'Datenstand', 'NeuerFall', 'NeuerTodesfall')
+#column_list = pd.read_csv('..' + os.sep + 'RKI-Daten' + os.sep + 'RKI_COVID19_2020-03-27.csv').columns.to_list()
+#column_list.remove('ObjectId')
+# removes elements in the files list which should not be loaded
 try:
     files.remove('.git')
 except:
@@ -50,30 +54,62 @@ try:
     files.remove('Deaths.csv')
 except:
     pass
-
+try:
+    files.remove('Deaths_RKI_Format.csv')
+except:
+    pass
+try:
+    files.remove('Deaths_RKI_Format_new.csv')
+except:
+    pass
 try:
     files.remove('RKI_COVID19_2020-04-16.csv')
 except:
     pass
+"""
+try:
+    files.remove('RKI_COVID19_2020-04-11.csv')
+except:
+    pass
+try:
+    files.remove('RKI_COVID19_2020-04-13.csv')
+except:
+    pass
+try:
+    files.remove('RKI_COVID19_2020-04-18.csv')
+except:
+    pass
+try:
+    files.remove('RKI_COVID19_2020-04-27.csv')
+except:
+    pass
+try:
+    files.remove('RKI_COVID19_2020-05-04.csv')
+except:
+    pass
+"""
 
-files = sorted(files)
+files = sorted(files) # orders files by data date rather than last modification
+
 # DEBUG
 print(files)
 
-last_data = pd.read_csv('..' + os.sep + 'RKI-Daten' + os.sep + 'RKI_COVID19_2020-06-14.csv')
-
+# reads district list out of recent data
+last_data = pd.read_csv('..' + os.sep + 'RKI-Daten' + os.sep + files[-1])
 landkreise = []
-
 for landkreis in last_data['Landkreis']:
     if not landkreis in landkreise:
         landkreise.append(landkreis)
 
+# possible age specifications in the data
 ageGroups = ['A00-A04', 'A05-A14', 'A15-A34', 'A35-A59', 'A60-A79', 'A80+', 'unbekannt']
 
+# possible gender specifications in the data
 genders = ['M', 'unbekannt', 'W']
+
 newDeaths = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote']) #format: Datum, Landkreis, Altersgruppe, Geschlecht, Tote
-append_today_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote']) #format: Datum, Landkreis, Altersgruppe, Geschlecht, Tote
-append_yesterday_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote']) #format: Datum, Landkreis, Altersgruppe, Geschlecht, Tote
+append_today_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote'])
+append_yesterday_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote'])
 append_inter_DataFrame = pd.DataFrame(columns=['Datum', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'Tote'])
 
 prev_date = datetime.strptime('2020/03/25', '%Y/%m/%d').date()
@@ -84,8 +120,12 @@ for file in files:
     data = data[data['NeuerTodesfall'] != -9]
     data_date = data['Datenstand'].iloc[0]
     data_date = data_date.replace('-', '/')
+    data_date = data_date.replace('.', '/')
     print(data_date)
-    data_date_obj = datetime.strptime(data_date, '%Y/%m/%d').date()
+    format = '%Y/%m/%d'
+    if data_date[0:4] != '2020':
+        format = '%d/%m/%Y'
+    data_date_obj = datetime.strptime(data_date[0:10], format).date()
     lack_of_data = (data_date_obj - prev_date).days - 1
     if lack_of_data:
         yesterday = datetime.strftime(data_date_obj - timedelta(days=1), '%Y/%m/%d')
@@ -111,7 +151,7 @@ for file in files:
                     continue
                 dead = interest['AnzahlTodesfall'].sum()
                 #print(dead)
-                append_dict = {'Datum':data_date, 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':dead}
+                append_dict = {'Datum':data_date_obj.strftime('%Y/%m/%d'), 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':dead}
                 #print(append_dict)
                 append_today_DataFrame = append_today_DataFrame.append(append_dict, ignore_index=True)
                 #print(newDeaths)

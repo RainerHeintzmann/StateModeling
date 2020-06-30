@@ -5,7 +5,7 @@ import StateModeling as stm
 import matplotlib.pyplot as plt
 from os.path import sep
 
-def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None, correctDeaths=False):
+def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None, correctDeaths=False, UseRefDead=True):
     import os
     basePath = os.getcwd()
     if basePath.endswith('Examples'):
@@ -32,10 +32,16 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
             # with open(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\Global_Mobility_Report.csv", 'r', encoding="utf8") as f:
             #     mobility = list(csv.reader(f, delimiter=","))
             # mobility = np.array(mobility[1:], dtype=np.float)
+            #print(data['AnzahlTodesfall']) # DEBUG
+            #print(data['AnzahlTodesfall']) # DEBUG
             if correctDeaths:
-                correct_deaths = pd.read_csv('..' + os.sep + 'RKI-Daten' + os.sep + 'Deaths.csv')
+                data['AnzahlTodesfall'] = 0
+                data['NeuerTodesfall'] = -9
+                correct_deaths = pd.read_csv('~' + os.sep + 'Dokumente' + os.sep + 'RKI-Daten' + os.sep + 'Deaths_RKI_Format_new.csv')
                 data = data.append(correct_deaths, ignore_index=True)
-            AllMeasured, day1, numdays = imputation(data)
+            print(data) # DEBUG
+            data = data.fillna(0)
+            AllMeasured, day1, numdays = imputation(data, useRefDead=UseRefDead, correctDeaths=correctDeaths)
             df = pd.read_excel(basePath + sep + r"Examples"+sep+"bev_lk.xlsx")  # support information about the population
             # AllMeasured, day1, numdays = cumulate(data, df)
             AllMeasured.update(addOtherData(data, df, day1, numdays))  # adds the supplemental information
@@ -331,8 +337,10 @@ def getLabels(rki_data, label):
     return labels
 
 
-def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True):
-    print('Imputation...')
+def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, correctDeaths=False):
+    #print('Imputat') # DEBUG
+    #print(type(rki_data)) # DEBUG
+    #print(rki_data) # DEBUG
     AG = 'Altersgruppe'
     LKs = getLabels(rki_data, 'Landkreis')
     Ages = getLabels(rki_data, AG)
@@ -374,6 +382,7 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True):
         NeuerTodesFall = row['NeuerTodesfall']  # see the fetch_data.py file for the details of what NeuerFall means.
         if NeuerTodesFall == 0 or NeuerTodesFall == 1: # only new cases are counted. NeuerTodesFall == 0 or
             AnzahlTodesfall = row['AnzahlTodesfall']
+            #print(AnzahlTodesfall) # DEBUG
         else:
             AnzahlTodesfall = 0
         NeuGenesen = row['NeuGenesen']  # see the fetch_data.py file for the details of what NeuerFall means.
@@ -404,6 +413,8 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True):
         else:
             repCases[MelDay-day1,myLK,myAge,myGender] += AnzahlFall
             repDead[MelDay-day1,myLK,myAge,myGender] += AnzahlTodesfall
+            #if AnzahlTodesfall > 0:
+                #print(repDead[MelDay-day1,myLK]) # DEBUG
 
     print('Discarded : ' +str(discardedCases) +' cases and '+str(discardedDeaths)+" deaths as the start of desease was outside limits.")
     # np.sum(delayCases * delayAxis[:,np.newaxis,np.newaxis],(0,1))/np.sum(delayCases,(0,1))
@@ -435,17 +446,24 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True):
         if num > 0:
             ExtraCases[start:stop] += delayCases[delayStart:delayStop][:,:,:,np.newaxis] * repCases[t]
             if useRefDead:
-                ExtraDeaths[start:stop] += delayDeaths[delayStart:delayStop][:,:,:,np.newaxis] * repDead[t]
+                if correctDeaths:
+                    ExtraDeaths[start:stop] = repDead[t]
+                else:
+                    ExtraDeaths[start:stop] += delayDeaths[delayStart:delayStop][:,:,:,np.newaxis] * repDead[t]
 
     if doPlot:
         plt.figure('Imputation')
         plt.plot(np.sum(Cases,(1,2,3)))
         plt.plot(np.sum(ExtraCases,(1,2,3)))
-        plt.plot(np.sum(Deaths, (1, 2, 3)))
-        if useRefDead:
+        if not correctDeaths:
+            plt.plot(np.sum(ExtraDeaths, (1, 2, 3)))
+        elif useRefDead:
             plt.plot(np.sum(ExtraDeaths, (1, 2, 3)))
     if useRefDead:
-        AllMeasured = {'Cases': Cases + ExtraCases, 'Dead': Deaths, 'ExtraCases': ExtraCases, 'ExtraDeaths':ExtraDeaths}  #
+        if correctDeaths:
+            AllMeasured = {'Cases': Cases + ExtraCases, 'Dead': ExtraDeaths, 'ExtraCases': ExtraCases}  #
+        else:
+            AllMeasured = {'Cases': Cases + ExtraCases, 'Dead': Deaths, 'ExtraCases': ExtraCases, 'ExtraDeaths':ExtraDeaths}  #
     else:
         AllMeasured = {'Cases':Cases+ExtraCases, 'Dead':Deaths, 'ExtraCases':ExtraCases} # 'ExtraDeaths':ExtraDeaths
     return AllMeasured, firstDate, numDays
