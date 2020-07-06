@@ -241,7 +241,7 @@ def binThuringia(data, lastDate=None):
 
 
 def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Greiz', 'SK Gera', 'SK Jena'), ReduceAges=None, ReduceGender = None, SumDistricts=False, SumAges=True, SumGender=True):
-    # LKs.index('SK Jena'), SK Gera, LK Nordhausen, SK Erfurt, Sk Suhl, LK Weimarer Land, SK Weimar
+    # LKs.index('SK Jena'), SK Gera, LK Nordhausen, SK Erfurt, SK Suhl, LK Weimarer Land, SK Weimar
     # LK Greiz, LK Schmalkalden-Meiningen, LK Eichsfeld, LK Sömmerda, LK Hildburghausen,
     # LK Saale-Orla-Kreis, LK Kyffhäuserkreis, LK Saalfeld-Rudolstadt, LK Ilm-Kreis,
     # LK Unstrut-Hainich-Kreis, LK Gotha, LK Sonneberg, SK Eisenach, LK Altenburger Land, LK Wartburgkreis
