@@ -148,9 +148,8 @@ for file in files:
                     continue
                 interest = interest_gender[interest_gender['NeuerTodesfall'] != -1]
                 if interest.empty:
-                    dead = 0
-                else:
-                    dead = interest['AnzahlTodesfall'].sum()
+                    continue
+                dead = interest['AnzahlTodesfall'].sum()
                 #print(dead)
                 append_dict = {'Datum':data_date_obj.strftime('%Y/%m/%d'), 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':dead}
                 #print(append_dict)
