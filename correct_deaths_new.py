@@ -119,14 +119,14 @@ def PreprocessDeaths(DataDir=None):
 
     for file in files:
         print(file)
-        data = pd.read_csv(DataDir + os.sep + file)
+        data = pd.read_csv(DataDir + os.sep + file, encoding = "ISO-8859-1")
         NeuerTodesfallTag = 'NeuerTodesfall'
         if NeuerTodesfallTag not in data.keys():
             NeuerTodesfallTag = 'Neuer Todesfall'
         AnzahlTodesfallTag = 'AnzahlTodesfall'
         if AnzahlTodesfallTag not in data.keys():
             AnzahlTodesfallTag = 'Anzahl Todesfall'
-        data = data[data['NeuerTodesfall'] != -9]
+        data = data[data[NeuerTodesfallTag] != -9]
         data_date = file[-14:-4]
         data_date = data_date.replace('-', '/')
         print(data_date)
@@ -166,7 +166,7 @@ def PreprocessDeaths(DataDir=None):
                     #print(newDeaths)
                     if lack_of_data:
                         interest = interest_gender[interest_gender[NeuerTodesfallTag] != 0]
-                        diff = interest['AnzahlTodesfall'].sum()
+                        diff = interest[AnzahlTodesfallTag].sum()
                         dead_yesterday = dead - diff
                         append_dict = {'Datum':yesterday, 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':dead_yesterday}
                         append_yesterday_DataFrame = append_yesterday_DataFrame.append(append_dict, ignore_index=True)
