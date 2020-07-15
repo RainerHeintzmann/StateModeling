@@ -160,8 +160,9 @@ def PreprocessDeaths(DataDir=None):
                         continue
                     interest = interest_gender[interest_gender[NeuerTodesfallTag] != -1]
                     if interest.empty:
-                        continue
-                    dead = interest[AnzahlTodesfallTag].sum()
+                        dead = 0
+                    else:
+                        dead = interest['AnzahlTodesfall'].sum()
                     #print(dead)
                     append_dict = {'Datum':data_date_obj.strftime('%Y/%m/%d'), 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':dead}
                     #print(append_dict)
@@ -216,4 +217,4 @@ def PreprocessDeaths(DataDir=None):
 
 if __name__ == '__main__':
     # PreprocessDeaths(r'C:\Users\pi96doc\Documents\Programming\PythonScripts\FromWeb\CoronaData\CSV-Dateien-mit-Covid-19-Infektionen-')
-    PreprocessDeaths(r'..\FromWeb\CoronaData\CSV-Dateien-mit-Covid-19-Infektionen-')
+    PreprocessDeaths()
