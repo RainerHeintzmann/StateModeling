@@ -120,6 +120,12 @@ def PreprocessDeaths(DataDir=None):
     for file in files:
         print(file)
         data = pd.read_csv(DataDir + os.sep + file)
+        NeuerTodesfallTag = 'NeuerTodesfall'
+        if NeuerTodesfallTag not in data.keys():
+            NeuerTodesfallTag = 'Neuer Todesfall'
+        AnzahlTodesfallTag = 'AnzahlTodesfall'
+        if AnzahlTodesfallTag not in data.keys():
+            AnzahlTodesfallTag = 'Anzahl Todesfall'
         data = data[data['NeuerTodesfall'] != -9]
         data_date = file[-14:-4]
         data_date = data_date.replace('-', '/')
@@ -148,18 +154,18 @@ def PreprocessDeaths(DataDir=None):
                     interest_gender = interest_age[interest_age['Geschlecht'] == gender]
                     if interest_gender.empty:
                         continue
-                    interest = interest_gender[interest_gender['NeuerTodesfall'] != -1]
+                    interest = interest_gender[interest_gender[NeuerTodesfallTag] != -1]
                     if interest.empty:
                         dead = 0
                     else:
-                        dead = interest['AnzahlTodesfall'].sum()
+                        dead = interest[AnzahlTodesfallTag].sum()
                     #print(dead)
                     append_dict = {'Datum':data_date_obj.strftime('%Y/%m/%d'), 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':dead}
                     #print(append_dict)
                     append_today_DataFrame = append_today_DataFrame.append(append_dict, ignore_index=True)
                     #print(newDeaths)
                     if lack_of_data:
-                        interest = interest_gender[interest_gender['NeuerTodesfall'] != 0]
+                        interest = interest_gender[interest_gender[NeuerTodesfallTag] != 0]
                         diff = interest['AnzahlTodesfall'].sum()
                         dead_yesterday = dead - diff
                         append_dict = {'Datum':yesterday, 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':dead_yesterday}
