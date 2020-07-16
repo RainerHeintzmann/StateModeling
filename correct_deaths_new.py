@@ -32,11 +32,10 @@ def reorder_dataframe_by_date_and_district(df, start_date, end_date, districts):
     #print(ret)
     return ret
 
-
 def PreprocessDeaths(DataDir=None):
-    if DataDir is None:
-        DataDir = '..' + os.sep + 'RKI-Daten' # files in the data directory
-    files = os.listdir(DataDir)  # files in the data directory
+    if DataDir == None:
+        DataDir = '..' + os.sep + 'RKI-Daten'
+    files = os.listdir(DataDir) # files in the data directory
 
     #column_order = ('IdBundesland', 'Bundesland', 'Landkreis', 'Altersgruppe', 'Geschlecht', 'AnzahlFall', 'AnzahlTodesfall', 'Meldedatum', 'IdLandkreis', 'Datenstand', 'NeuerFall', 'NeuerTodesfall')
     #column_list = pd.read_csv('..' + os.sep + 'RKI-Daten' + os.sep + 'RKI_COVID19_2020-03-27.csv').columns.to_list()
@@ -99,7 +98,7 @@ def PreprocessDeaths(DataDir=None):
     print(files)
 
     # reads district list out of recent data
-    last_data = pd.read_csv(DataDir+ os.sep + files[-1])
+    last_data = pd.read_csv(DataDir + os.sep + files[-1])
     landkreise = []
     for landkreis in last_data['Landkreis']:
         if not landkreis in landkreise:
@@ -120,7 +119,7 @@ def PreprocessDeaths(DataDir=None):
 
     for file in files:
         print(file)
-        data = pd.read_csv(DataDir + os.sep + file, encoding = "ISO-8859-1") # encoding to also deal with problematic codes see data of 29.4.2020
+        data = pd.read_csv(DataDir + os.sep + file, encoding = "ISO-8859-1")
         NeuerTodesfallTag = 'NeuerTodesfall'
         if NeuerTodesfallTag not in data.keys():
             NeuerTodesfallTag = 'Neuer Todesfall'
@@ -128,16 +127,13 @@ def PreprocessDeaths(DataDir=None):
         if AnzahlTodesfallTag not in data.keys():
             AnzahlTodesfallTag = 'Anzahl Todesfall'
         data = data[data[NeuerTodesfallTag] != -9]
-        data_date = file[-14:-4]  # get the date information ("Datenstand") directly from the filename. This is cheating a bit but much easier to program...
-        # data_date = data['Datenstand'].iloc[0]
+        data_date = file[-14:-4]
         data_date = data_date.replace('-', '/')
-        # data_date = data_date.replace('.', '/')
-        # print(data_date)
+        print(data_date)
         format = '%Y/%m/%d'
-        # if data_date[0:4] != '2020':
-        #     format = '%d/%m/%Y'
-        # data_date_obj = datetime.strptime(data_date[0:10], format).date()
-        data_date_obj = datetime.strptime(data_date, format).date()
+        if data_date[0:4] != '2020':
+            format = '%d/%m/%Y'
+        data_date_obj = datetime.strptime(data_date[0:10], format).date()
         lack_of_data = (data_date_obj - prev_date).days - 1
         if lack_of_data:
             yesterday = datetime.strftime(data_date_obj - timedelta(days=1), '%Y/%m/%d')
@@ -160,8 +156,9 @@ def PreprocessDeaths(DataDir=None):
                         continue
                     interest = interest_gender[interest_gender[NeuerTodesfallTag] != -1]
                     if interest.empty:
-                        continue
-                    dead = interest[AnzahlTodesfallTag].sum()
+                        dead = 0
+                    else:
+                        dead = interest[AnzahlTodesfallTag].sum()
                     #print(dead)
                     append_dict = {'Datum':data_date_obj.strftime('%Y/%m/%d'), 'Landkreis':current_district, 'Altersgruppe':age, 'Geschlecht':gender, 'Tote':dead}
                     #print(append_dict)
@@ -215,5 +212,4 @@ def PreprocessDeaths(DataDir=None):
     print(newDeaths)
 
 if __name__ == '__main__':
-    # PreprocessDeaths(r'C:\Users\pi96doc\Documents\Programming\PythonScripts\FromWeb\CoronaData\CSV-Dateien-mit-Covid-19-Infektionen-')
-    PreprocessDeaths(r'..\FromWeb\CoronaData\CSV-Dateien-mit-Covid-19-Infektionen-')
+    PreprocessDeaths()
