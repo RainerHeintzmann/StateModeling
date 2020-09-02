@@ -5,9 +5,12 @@ import StateModeling as stm
 import matplotlib.pyplot as plt
 from os.path import sep
 
-def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None, correctDeaths=False, UseRefDead=True):
+def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None, correctDeaths=False, UseRefDead=True, DeathData=None):
     import os
     basePath = os.getcwd()
+    #if correctDeaths and not pullData:
+    #    raise ValueError('correctDeath only makes sense when using pullData. Please also activate pullData')
+
     if basePath.endswith('Examples'):
         basePath = basePath[:-9]  # to remove the Examples bit
 
@@ -37,7 +40,10 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
             if correctDeaths:
                 data['AnzahlTodesfall'] = 0
                 data['NeuerTodesfall'] = -9
-                correct_deaths = pd.read_csv('~' + os.sep + 'Dokumente' + os.sep + 'RKI-Daten' + os.sep + 'Deaths_RKI_Format_new.csv')
+                if not DeathData:
+                    # DeathData = '~' + os.sep + 'Dokumente' + os.sep + 'RKI-Daten' + os.sep + 'Deaths_RKI_Format_new.csv'
+                    DeathData = '..'+os.sep+'FromWeb'+os.sep+'CoronaData'+os.sep+'CSV-Dateien-mit-Covid-19-Infektionen-' + os.sep + 'Deaths_RKI_Format_new.csv'
+                correct_deaths = pd.read_csv(DeathData)
                 data = data.append(correct_deaths, ignore_index=True)
             print(data) # DEBUG
             data = data.fillna(0)

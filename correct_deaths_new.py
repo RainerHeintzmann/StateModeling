@@ -212,4 +212,4 @@ def PreprocessDeaths(DataDir=None):
     print(newDeaths)
 
 if __name__ == '__main__':
-    PreprocessDeaths()
+    PreprocessDeaths(r'C:\Users\pi96doc\Documents\Programming\PythonScripts\FromWeb\CoronaData\CSV-Dateien-mit-Covid-19-Infektionen-\\')

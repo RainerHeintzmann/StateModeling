@@ -4,6 +4,24 @@
 
 import StateModeling as stm
 import numpy as np
+import sys
+sys.path.insert(1,'../RKI_COVID19')
+# sys.path.append(r'../RKI_COVID19')
+# sys.path.append(r'C:\\Users\\pi96doc\\Documents\\Programming\\RKI_COVID19')
+#import RKI_COVID19_DB
+#from RKI_COVID19 import RKI_COVID19_DB
+from RKI_COVID19_Collection import RKI_COVID19_Collection
+db = RKI_COVID19_Collection()
+
+
+qqq
+# shows the list of dates
+# db.print_Statistics()
+
+# do the processing
+# db.process(verbose=True)
+db.load_df()
+
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from Corona.LoadData import loadData, preprocessData

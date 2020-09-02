@@ -74,4 +74,4 @@ def reformatDeaths(DataDir=None, NumThreads=12):
 
 if __name__ == '__main__':
     # reformatDeaths(DataDir=r'C:\Users\pi96doc\Documents\Programming\PythonScripts\FromWeb\CoronaData\CSV-Dateien-mit-Covid-19-Infektionen-', NumThreads=8)
-    reformatDeaths()
+    reformatDeaths(r'C:\Users\pi96doc\Documents\Programming\PythonScripts\FromWeb\CoronaData\CSV-Dateien-mit-Covid-19-Infektionen-\\')
