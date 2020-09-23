@@ -780,6 +780,7 @@ class Model:
         self.FitStopWidget = None
         self.Regularizations = []  # list tuples of regularizers with type, weight and name of variable e.g. [('TV',0.1, 'R')]
         self.plotCumul = False
+        self.plotMatplotlib = False
         np.random.seed(rand_seed)
 
     def timeAxis(self, entries, queue=False, labels=None):
@@ -1513,6 +1514,12 @@ class Model:
             msPerDay = 0.6 * 1000.0 * 60 * 60 * 24
         else:
             msPerDay = 0.6
+
+        if self.plotMatplotlib:
+            plt.plot(x,toPlot, label=mylegend)
+            plt.legend()
+            return
+
         if myPrefix + name not in self.DataDict:
             # print('replotting: '+name)
             if name not in self.DataDict:
@@ -1538,9 +1545,9 @@ class Model:
                     r.visible = True
                 r = Figure.line('x', 'y', line_width=1.5, alpha=0.8, color=color, line_dash=line_dash, legend_label=mylegend, source=source, name=myPrefix + name)
                 r.visible = True
-            # print('First plot of: '+name)
+            #print('First plot of: '+name)
         else:
-            # print('Updating y-data of: '+name)
+            #print('Updating y-data of: '+name)
             self.DataDict[name].data['y'] = toPlot
         self.DataDict[myPrefix + name] = self.DataDict[name]
         Figure.legend.click_policy = "hide"
@@ -1560,6 +1567,7 @@ class Model:
         from bokeh.palettes import Dark2_5 as palette
         from bokeh.io import push_notebook, show
         import itertools
+        plotMatplotlib = self.plotMatplotlib
         TOOLS = "pan,wheel_zoom,box_zoom,reset,save,box_select"
         # x = np.linspace(0, 2 * np.pi, 2000)
         # y = np.sin(x)
@@ -1599,18 +1607,27 @@ class Model:
             initMinus = []
 
         self.DataDict['_title'] = FigureTitle
-        newFigure = False
-        if FigureIdx not in self.DataDict:
-            if Dates is not None:
-                self.DataDict[FigureIdx] = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
-                                                  background_fill_color='#efefef', tools=TOOLS, x_axis_type='datetime', name=FigureIdx)
-                self.DataDict[FigureIdx].xaxis.major_label_orientation = np.pi / 4
-            else:
-                self.DataDict[FigureIdx] = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
-                                                  background_fill_color='#efefef', tools=TOOLS, name=FigureIdx)
-            self.DataDict[FigureIdx].xaxis.axis_label = 'time'
-            self.DataDict[FigureIdx].yaxis.axis_label = ylabel
+        if plotMatplotlib:
+            self.DataDict[FigureIdx] = plt.figure()
+            plt.title(self.DataDict['_title'])
+            plt.xlabel('time')
+            plt.ylabel(ylabel)
             newFigure = True
+        else:
+            if FigureIdx not in self.DataDict:
+                #print('New Figure: ' + FigureIdx+'\n')
+                if Dates is not None:
+                    self.DataDict[FigureIdx] = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
+                                                      background_fill_color='#efefef', tools=TOOLS, x_axis_type='datetime', name=FigureIdx)
+                    self.DataDict[FigureIdx].xaxis.major_label_orientation = np.pi / 4
+                else:
+                    self.DataDict[FigureIdx] = figure(title=self.DataDict['_title'], plot_height=400, plot_width=900,
+                                                      background_fill_color='#efefef', tools=TOOLS, name=FigureIdx)
+                self.DataDict[FigureIdx].xaxis.axis_label = 'time'
+                self.DataDict[FigureIdx].yaxis.axis_label = ylabel
+                newFigure = True
+            else:
+                newFigure = False
             # show(self.DataDict['_figure'], notebook_handle=True)
             # if ylabel is not None:
             #    self.resultFigure.yaxis.axis_label = ylabel
@@ -1628,9 +1645,15 @@ class Model:
                 # r.data_source.data['y'] = toPlot  # styles[n]
                 if toPlot.ndim > 1:
                     colors = itertools.cycle(palette)
+                    mydim=0;
+                    for d in range(len(labels)):
+                        if len(labels[d]) > 1:
+                            mydim = d
                     for d, color in zip(range(toPlot.shape[1]), colors):
                         x = self.getDates(Dates, toPlot)
-                        self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name=resN + "_" + dictN + "_" + labels[0][d], withDots=True, color=color, line_dash=style, allowCumul=allowCumul)
+                        alabel = labels[mydim][d]
+                        self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name=resN + "_" + dictN + "_" + alabel, withDots=True, color=color, line_dash=style, allowCumul=allowCumul)
+                        # labels[0][d]
                 else:
                     color = next(colors)
                     x = self.getDates(Dates, toPlot)
@@ -1648,18 +1671,22 @@ class Model:
                 V0 = 1.0
                 if dictN in self.State:
                     V0 = self.State[dictN]().numpy()
-                # print('Showing '+dictN+' V0 is '+str(V0))
+                #print('Showing '+dictN+' V0 is '+str(V0))
                 toPlot = V0 - toPlot
                 dictN = '('+dictN+'_0-' + dictN+')'
             toPlot, labels = self.selectDims(toPlot, dims=dims, includeZero=True)
             toPlot = np.squeeze(toPlot)
             if Scale is not None:
                 toPlot = toPlot * Scale
+            for d in range(len(labels)):
+                if len(labels[d]) > 1:
+                    mydim = d
             if toPlot.ndim > 1:
                 colors = itertools.cycle(palette)
                 for d, color in zip(range(toPlot.shape[1]), colors):
                     x = self.getDates(Dates, toPlot)
-                    self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name="Fit_" + dictN + "_" + labels[0][d], color=color, line_dash=style, allowCumul=allowCumul)
+                    alabel = labels[mydim][d]
+                    self.plotB(self.DataDict[FigureIdx], x, toPlot[:, d], name="Fit_" + dictN + "_" + alabel, color=color, line_dash=style, allowCumul=allowCumul)
             else:
                 color = next(colors)
                 x = self.getDates(Dates, toPlot)
@@ -1669,15 +1696,18 @@ class Model:
         # if ylim is not None:
         #     plt.ylim(ylim[0],ylim[1])
         # push_notebook()
-        if newFigure:
-            # print('showing figure')
+        if newFigure and not plotMatplotlib:
+            #print('showing figure: '+FigureIdx)
             try:
                 self.DataDict[FigureIdx + '_notebook_handle'] = show(self.DataDict[FigureIdx], notebook_handle=True)
             except:
                 print('Warnings: Figures are not showing, probably due to being called from console')
         else:
-            # print('pushing notebook')
-            push_notebook(handle=self.DataDict[FigureIdx + '_notebook_handle'])
+            #print('pushing notebook')
+            if plotMatplotlib:
+                return
+            else:
+                push_notebook(handle=self.DataDict[FigureIdx + '_notebook_handle'])
 
     def showResults(self, title='Results', xlabel='time step', Scale=False, xlim=None, ylim=None, ylabel='probability', dims=None, legendPlacement='upper left', Dates=None,
                     offsetDay=0, logY=True, styles=['.', '-', ':', '--', '-.', '*'], figsize=None):

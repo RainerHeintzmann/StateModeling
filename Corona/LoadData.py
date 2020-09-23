@@ -5,7 +5,7 @@ import StateModeling as stm
 import matplotlib.pyplot as plt
 from os.path import sep
 
-def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None, correctDeaths=False, UseRefDead=True, DeathData=None):
+def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None, correctDeaths=False, UseRefDead=True, DeathData=None, usePreprocessed=False):
     import os
     basePath = os.getcwd()
     #if correctDeaths and not pullData:
@@ -28,43 +28,63 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
         df = pd.read_excel(basePath + r"\Examples\bev_lk.xlsx")  # support information about the population
         AllMeasured.update(addOtherData(Thuringia, df, day1, numdays)) # adds the supplemental information
     else:
-        import os
-        # r"C:\Users\pi96doc\Documents\Programming\PythonScripts\StateModeling"
-        if pullData:
-            data = fetch_data.DataFetcher().fetch_german_data()
-            # with open(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\Global_Mobility_Report.csv", 'r', encoding="utf8") as f:
-            #     mobility = list(csv.reader(f, delimiter=","))
-            # mobility = np.array(mobility[1:], dtype=np.float)
-            #print(data['AnzahlTodesfall']) # DEBUG
-            #print(data['AnzahlTodesfall']) # DEBUG
-            if correctDeaths:
-                data['AnzahlTodesfall'] = 0
-                data['NeuerTodesfall'] = -9
-                if not DeathData:
-                    # DeathData = '~' + os.sep + 'Dokumente' + os.sep + 'RKI-Daten' + os.sep + 'Deaths_RKI_Format_new.csv'
-                    DeathData = '..'+os.sep+'FromWeb'+os.sep+'CoronaData'+os.sep+'CSV-Dateien-mit-Covid-19-Infektionen-' + os.sep + 'Deaths_RKI_Format_new.csv'
-                correct_deaths = pd.read_csv(DeathData)
-                data = data.append(correct_deaths, ignore_index=True)
-            print(data) # DEBUG
-            data = data.fillna(0)
-            AllMeasured, day1, numdays = imputation(data, useRefDead=UseRefDead, correctDeaths=correctDeaths)
-            df = pd.read_excel(basePath + sep + r"Examples"+sep+"bev_lk.xlsx")  # support information about the population
-            # AllMeasured, day1, numdays = cumulate(data, df)
-            AllMeasured.update(addOtherData(data, df, day1, numdays))  # adds the supplemental information
-            np.save(basePath + sep+ r'Data'+sep+'AllMeasured', AllMeasured)
+        if usePreprocessed:
+            import sys
+            mydir = os.path.dirname(os.path.realpath(__file__))
+            sys.path.insert(1, mydir + os.sep + '..' + os.sep + '..' + os.sep + 'RKI_COVID19')  # relative path from Examples to the RKI_COVID19 folder
+            from RKI_COVID19_Collection import RKI_COVID19_Collection
+            db = RKI_COVID19_Collection()
 
-            # can be checked with
-            # https://www.rki.de/DE/Content/InfAZ/N/Neuartiges_Coronavirus/Situationsberichte/2020-04-16-de.pdf?__blob=publicationFile
+            # shows the list of dates
+            # db.print_Statistics()
+
+            # do the processing
+            # db.process(verbose=True)
+            print('loading preprocessed data ...')
+            db.load_df()
+            print('.done\n')
+            AllMeasured, day1, numdays = imputation(db.pdf, useRefDead=UseRefDead, correctDeaths=correctDeaths)
+            df = pd.read_excel(basePath + sep + r"Examples" + sep + "bev_lk.xlsx")  # support information about the population
+            AllMeasured.update(addOtherData(db.pdf, df, day1, numdays))  # adds the supplemental information
         else:
-            AllMeasured = np.load(basePath + sep+r'Data'+sep+'AllMeasured.npy', allow_pickle=True).item()
+            import os
+            # r"C:\Users\pi96doc\Documents\Programming\PythonScripts\StateModeling"
+            if pullData:
+                data = fetch_data.DataFetcher().fetch_german_data()
+                # with open(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\Global_Mobility_Report.csv", 'r', encoding="utf8") as f:
+                #     mobility = list(csv.reader(f, delimiter=","))
+                # mobility = np.array(mobility[1:], dtype=np.float)
+                #print(data['AnzahlTodesfall']) # DEBUG
+                #print(data['AnzahlTodesfall']) # DEBUG
+                if correctDeaths:
+                    data['AnzahlTodesfall'] = 0
+                    data['NeuerTodesfall'] = -9
+                    if not DeathData:
+                        # DeathData = '~' + os.sep + 'Dokumente' + os.sep + 'RKI-Daten' + os.sep + 'Deaths_RKI_Format_new.csv'
+                        DeathData = '..'+os.sep+'FromWeb'+os.sep+'CoronaData'+os.sep+'CSV-Dateien-mit-Covid-19-Infektionen-' + os.sep + 'Deaths_RKI_Format_new.csv'
+                    correct_deaths = pd.read_csv(DeathData)
+                    data = data.append(correct_deaths, ignore_index=True)
+                print(data) # DEBUG
+                data = data.fillna(0)
+                AllMeasured, day1, numdays = imputation(data, useRefDead=UseRefDead, correctDeaths=correctDeaths)
+                df = pd.read_excel(basePath + sep + r"Examples"+sep+"bev_lk.xlsx")  # support information about the population
+                # AllMeasured, day1, numdays = cumulate(data, df)
+                AllMeasured.update(addOtherData(data, df, day1, numdays))  # adds the supplemental information
+                np.save(basePath + sep+ r'Data'+sep+'AllMeasured', AllMeasured)
+
+                # can be checked with
+                # https://www.rki.de/DE/Content/InfAZ/N/Neuartiges_Coronavirus/Situationsberichte/2020-04-16-de.pdf?__blob=publicationFile
+            else:
+                AllMeasured = np.load(basePath + sep+r'Data'+sep+'AllMeasured.npy', allow_pickle=True).item()
 
         AllMeasured['Region'] = "Germany"
-    AgePop = np.array([(3.88 + 0.78), 6.62, 2.31 + 2.59 + 3.72 + 15.84, 23.9, 15.49, 7.88], stm.CalcFloatStr)
+    AgePop = np.array([(3.88 + 0.78), 6.62, 2.31 + 2.59 + 3.72 + 15.84, 23.9, 15.49, 7.88, 0.001], stm.CalcFloatStr) # The last ist just something for "unkown"?
     AgePop /= np.sum(AgePop)
     PopM = AgePop[np.newaxis,:] * AllMeasured['PopM'][:,np.newaxis]
     PopW = AgePop[np.newaxis,:] * AllMeasured['PopW'][:,np.newaxis]
-    AllMeasured['Population'] = np.stack((PopM, PopW),-1)
-
+    PopU = PopW * 0.00001  # just to have the unkown population not empty
+    AllMeasured['Population'] = np.stack((PopM, PopW, PopU),-1)
+    # AllMeasured['Population'] = AllMeasured['Population'](:,np.newaxis,:,:)
     # mobility only to 11.04.2020:
     #mobility = pd.read_csv(r"C:\Users\pi96doc\Documents\Anträge\Aktuell\COVID_Dickmann_2020\Global_Mobility_Report.csv", low_memory=False)
     #mobdat = mobility[mobility['sub_region_1'] == "Thuringia"]
@@ -87,12 +107,12 @@ def stripQuotesFromAxes(data):
 def addOtherData(data, df, day1, numDays):
     Dates = pd.date_range(start = day1, periods=numDays).map(lambda x: x.strftime('%d.%m.%Y'))
 
-    if 'Landkreis' in data.keys():
-        labelsLK, levelsLK = data['Landkreis'].factorize()
-        data['LandkreisID'] = labelsLK
-    else:
-        labelsLK, levelsLK = data['MeldeLandkreis'].factorize()
-        data['LandkreisID'] = labelsLK
+    LandkreisName = 'Landkreis'
+    if 'Landkreis' not in data.keys():
+        LandkreisName = 'MeldeLandkreis'
+    # levelsLK = getLabels(data, LandkreisName)
+    labelsLK, levelsLK = data[LandkreisName].factorize()
+    data['LandkreisID'] = labelsLK  # This puts a unique (factorized) index in each case entry
     maxLK = np.max(data['LandkreisID'])
     numLK = maxLK + 1
     df = df.set_index('Stadt\nKreis / Landkreis')
@@ -111,7 +131,11 @@ def addOtherData(data, df, day1, numDays):
     labels, levelsGe = data['Geschlecht'].factorize()
     data['GeschlechtID'] = labels
     Gender = levelsGe
-    measured = {'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender,
+
+    labels, levelsAge = data['Altersgruppe'].factorize()
+    data['AgeID'] = labels
+    Ages = levelsAge
+    measured = {'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages,
                 'PopM': PopM, 'PopW':PopW, 'Area': Area}
     return measured
 
@@ -255,11 +279,19 @@ def binThuringia(data, lastDate=None):
     return measured, firstDate, numDays
 
 
-def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Greiz', 'SK Gera', 'SK Jena'), ReduceAges=None, ReduceGender = None, SumDistricts=False, SumAges=True, SumGender=True):
+def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Greiz', 'SK Gera', 'SK Jena'), ReduceAges=None, ReduceGender = None, SumDistricts=False, SumAges=True, SumGender=True, discardNoGender=True, discardNoAge=True, TimeRange=None):
     # LKs.index('SK Jena'), SK Gera, LK Nordhausen, SK Erfurt, SK Suhl, LK Weimarer Land, SK Weimar
     # LK Greiz, LK Schmalkalden-Meiningen, LK Eichsfeld, LK Sömmerda, LK Hildburghausen,
     # LK Saale-Orla-Kreis, LK Kyffhäuserkreis, LK Saalfeld-Rudolstadt, LK Ilm-Kreis,
     # LK Unstrut-Hainich-Kreis, LK Gotha, LK Sonneberg, SK Eisenach, LK Altenburger Land, LK Wartburgkreis
+    if TimeRange is not None:
+        AllMeasured['Cases'] = AllMeasured['Cases'][TimeRange[0]:TimeRange[1],:,:,:]
+        AllMeasured['Dead'] = AllMeasured['Dead'][TimeRange[0]:TimeRange[1],:,:,:]
+        AllMeasured['Dates'] = AllMeasured['Dates'][TimeRange[0]:TimeRange[1]]
+        if 'Hospitalized' in AllMeasured:
+            AllMeasured['Hospitalized'] = AllMeasured['Hospitalized'][TimeRange[0]:TimeRange[1],:,:,:]
+        if 'Cured' in AllMeasured:
+            AllMeasured['Cured'] = AllMeasured['Cured'][TimeRange[0]:TimeRange[1],:,:,:]
     if CorrectWeekdays:
         AllMeasured['Cases'] = correctWeekdayEffect(AllMeasured['Cases'])
         AllMeasured['Dead'] = correctWeekdayEffect(AllMeasured['Dead'])
@@ -267,7 +299,8 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
             AllMeasured['Hospitalized'] = correctWeekdayEffect(AllMeasured['Hospitalized'])
 
     if ReduceDistricts == 'Thuringia':
-        ReduceDistricts = (352, 342, 167, 332, 399, 278, 403, 82, 230, 55, 251, 102, 221, 122, 223, 110, 263, 80, 240, 330, 3, 276)
+        ReduceDistricts = (297,234,372,233,298,237,122,176,347,299,174,408,0,175,382,398,397,236,348,409,235,177,346)
+        # (352, 342, 167, 332, 399, 278, 403, 82, 230, 55, 251, 102, 221, 122, 223, 110, 263, 80, 240, 330, 3, 276)
     elif ReduceDistricts == 'Model Regions':
         ReduceDistricts = ['SK Gera', 'SK Jena', 'LK Greiz', 'SK Suhl', 'LK Nordhausen']
     elif isinstance(ReduceDistricts, str):
@@ -290,8 +323,29 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
 
     if ReduceAges is None:
         ReduceAges = slice(None,None,None) # means take all
+
     if ReduceGender is None:
         ReduceGender = slice(None,None,None) # means take all
+
+    if discardNoGender and not SumGender and AllMeasured['Cases'].shape[-1] > 1:  # remove 'unbekannt'
+        AllMeasured['Gender'] = AllMeasured['Gender'][0:-1]
+        AllMeasured['Cases'] = AllMeasured['Cases'][:,:,:,:-1]
+        AllMeasured['Dead'] = AllMeasured['Dead'][:,:,:,:-1]
+        AllMeasured['Population'] = AllMeasured['Population'][:,:,:-1]
+        if 'Hospitalized' in AllMeasured:
+            AllMeasured['Hospitalized'] = AllMeasured['Hospitalized'][:, :, :, :-1]
+        if 'Cured' in AllMeasured:
+            AllMeasured['Cured'] = AllMeasured['Cured'][:, :, :, :-1]
+
+    if discardNoAge and not SumAges and AllMeasured['Cases'].shape[-2] > 1:  # remove 'unbekannt'
+        AllMeasured['Ages'] = AllMeasured['Ages'][0:-1]
+        AllMeasured['Cases'] = AllMeasured['Cases'][:,:,:-1,:]
+        AllMeasured['Dead'] = AllMeasured['Dead'][:,:,:-1,:]
+        AllMeasured['Population'] = AllMeasured['Population'][:,:-1,:]
+        if 'Hospitalized' in AllMeasured:
+            AllMeasured['Hospitalized'] = AllMeasured['Hospitalized'][:, :, :-1, :]
+        if 'Cured' in AllMeasured:
+            AllMeasured['Cured'] = AllMeasured['Cured'][:, :, :-1, :]
 
     sumDims = ()
     if SumGender:
@@ -302,7 +356,10 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
         sumDims  = sumDims+(-2,)
     if SumDistricts:
         AllMeasured['IDs'] = np.array(0)
-        AllMeasured['LKs'] = [AllMeasured['Region']]
+        if (ReduceDistricts is None) or isinstance(ReduceDistricts,slice):
+            AllMeasured['LKs'] = [AllMeasured['Region']]
+        else:
+            AllMeasured['LKs'] = [str(len(ReduceDistricts))+' Regions in '+AllMeasured['Region']]
         sumDims  = sumDims+(-3,)
 
     if 'CumulCases' in AllMeasured:
@@ -315,7 +372,7 @@ def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Grei
         AllMeasured['Hospitalized'] = np.sum(AllMeasured['Hospitalized'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
     if 'Cured' in AllMeasured:
         AllMeasured['Cured'] = np.sum(AllMeasured['Cured'][:, ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
-    AllMeasured['Population']  = np.sum(AllMeasured['Population'][ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
+    AllMeasured['Population'] = np.sum(AllMeasured['Population'][ReduceDistricts, ReduceAges, ReduceGender], sumDims, keepdims=True)
     return AllMeasured
 
 def correctWeekdayEffect(RawCases):
@@ -335,15 +392,17 @@ def toDay(timeInMs):
 
 def getLabels(rki_data, label):
     try:
-        labels = rki_data[label].unique()
-        labels.sort();
-        labels = labels.tolist()
+        labelsLK, levelsLK = rki_data[label].factorize()
+        labels = levelsLK.tolist()  # to be the same as in the addData routine
+        # labels = rki_data[label].unique()
+        # labels.sort();
+        # labels = labels.tolist()
     except KeyError:
         labels = ['BRD']
     return labels
 
 
-def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, correctDeaths=False):
+def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, correctDeaths=False, discardLargeDelay=True):
     #print('Imputat') # DEBUG
     #print(type(rki_data)) # DEBUG
     #print(rki_data) # DEBUG
@@ -351,12 +410,23 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, cor
     LKs = getLabels(rki_data, 'Landkreis')
     Ages = getLabels(rki_data, AG)
     Gender = getLabels(rki_data, 'Geschlecht')
-    day1 = toDay(np.min(rki_data[whichDate]))
-    firstDate = pd.to_datetime(np.min(rki_data[whichDate]), unit='ms')
-    dayLast = toDay(np.max(rki_data['Meldedatum']))
+    whichRef = whichDate
+    if whichRef == 'Refdatum' and 'timestamp_ref' in rki_data.columns.values:
+        whichRef = 'timestamp_ref'
+    whichReporting = 'Meldedatum'
+    if whichReporting == 'Meldedatum' and 'timestamp_reporting' in rki_data.columns.values:
+        whichReporting = 'timestamp_reporting'
+    whichDeath = 'VerstorbenDatum'
+    if whichDeath == 'VerstorbenDatum' and 'timestamp_death' in rki_data.columns.values:
+        print('using timestamp_death')
+        whichDeath = 'timestamp_death'
+
+    day1 = toDay(np.min(rki_data[whichRef]))
+    firstDate = pd.to_datetime(np.min(rki_data[whichRef]), unit='ms')
+    dayLast = toDay(np.max(rki_data[whichReporting]))
     numDays = dayLast - day1 + 1
-    minDelay=0 # -32 according to RKI limit
-    maxDelay=30 # according to RKI limit
+    minDelay = -32 # -32 according to RKI limit
+    maxDelay = 30 # according to RKI limit
     numDelay = maxDelay-minDelay
     delayAxis = np.arange(minDelay, maxDelay)
     delayCases = np.zeros((numDelay, len(LKs), len(Ages)), dtype=np.float32)
@@ -368,7 +438,8 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, cor
     Deaths = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
     discardedCases=0
     discardedDeaths=0
-    if 'VerstorbenDatum' in rki_data.keys():
+    DeathNotAssigned=0
+    if whichDeath in rki_data.keys():
         useRefDead=False
     if useRefDead:
         print('Using reference date for deaths.')
@@ -378,8 +449,8 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, cor
         myLK = LKs.index(row['Landkreis'])
         myAge = Ages.index(row[AG])
         myGender = Gender.index(row['Geschlecht'])
-        RefDay = toDay(row['Refdatum'])  # convert to days with an offset
-        MelDay = toDay(row['Meldedatum'])  # convert to days with an offset
+        RefDay = toDay(row[whichRef])  # convert to days with an offset
+        MelDay = toDay(row[whichReporting])  # convert to days with an offset
         NeuerFall = row['NeuerFall']  # see the fetch_data.py file for the details of what NeuerFall means.
         if NeuerFall == -1:
             AnzahlFall = 0
@@ -399,7 +470,7 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, cor
 
         if (row['IstErkrankungsbeginn'] == 1):
             delay = MelDay-RefDay - minDelay
-            if delay >= 0 and delay < numDelay:
+            if (not discardLargeDelay) or (delay >= 0 and delay < numDelay):
                 Cases[RefDay - day1, myLK, myAge, myGender] += AnzahlFall
                 delayCases[numDelay-delay-1, myLK, myAge] += AnzahlFall
                 if useRefDead:
@@ -410,9 +481,13 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, cor
                 if useRefDead:
                     discardedDeaths += row['AnzahlTodesfall']
                     # print('Found delay: '+str(MelDay-RefDay)+', no. cases: '+str(row['AnzahlFall'])+ 'm dead: '+str(row['AnzahlTodesfall'])+' > maxDelay')
-            if not useRefDead:
-                if 'VerstorbenDatum' in row.keys():
-                    DeadDay = toDay(row['VerstorbenDatum'])
+            if not useRefDead and AnzahlTodesfall != 0:
+                if whichDeath in row.keys():
+                    if row[whichDeath] == 0 or row[whichDeath] is None or row[whichDeath] == '':
+                        DeadDay = MelDay
+                        DeathNotAssigned += AnzahlTodesfall
+                    else:
+                        DeadDay = toDay(row[whichDeath])
                 else:
                     DeadDay = MelDay
                 Deaths[DeadDay - day1, myLK, myAge, myGender] += AnzahlTodesfall
@@ -421,6 +496,9 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, cor
             repDead[MelDay-day1,myLK,myAge,myGender] += AnzahlTodesfall
             #if AnzahlTodesfall > 0:
                 #print(repDead[MelDay-day1,myLK]) # DEBUG
+
+    if DeathNotAssigned != 0:
+        print('Unassigned Deaths: '+str(DeathNotAssigned)+'\n')
 
     print('Discarded : ' +str(discardedCases) +' cases and '+str(discardedDeaths)+" deaths as the start of desease was outside limits.")
     # np.sum(delayCases * delayAxis[:,np.newaxis,np.newaxis],(0,1))/np.sum(delayCases,(0,1))
@@ -441,6 +519,7 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, cor
     # delayDeaths = toNorm / np.sum(toNorm,(0))
 
     ExtraCases = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
+    ExtraDeaths = None  # just for plot
     if useRefDead:
         ExtraDeaths = np.zeros([numDays, len(LKs), len(Ages), len(Gender)])
     for t in range(numDays):  # now lets convolve
@@ -461,10 +540,11 @@ def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, cor
         plt.figure('Imputation')
         plt.plot(np.sum(Cases,(1,2,3)))
         plt.plot(np.sum(ExtraCases,(1,2,3)))
-        if not correctDeaths:
-            plt.plot(np.sum(ExtraDeaths, (1, 2, 3)))
-        elif useRefDead:
-            plt.plot(np.sum(ExtraDeaths, (1, 2, 3)))
+        if ExtraDeaths is not None:
+            if not correctDeaths:
+                plt.plot(np.sum(ExtraDeaths, (1, 2, 3)))
+            elif useRefDead:
+                plt.plot(np.sum(ExtraDeaths, (1, 2, 3)))
     if useRefDead:
         if correctDeaths:
             AllMeasured = {'Cases': Cases + ExtraCases, 'Dead': ExtraDeaths, 'ExtraCases': ExtraCases}  #
