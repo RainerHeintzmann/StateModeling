@@ -14,8 +14,75 @@ import os
 import requests
 from datetime import datetime, timedelta
 
+# for the file selection dialogue (see https://codereview.stackexchange.com/questions/162920/file-selection-button-for-jupyter-notebook)
+import traitlets
+from ipywidgets import widgets
+from IPython.display import display
+from tkinter import Tk, filedialog
+
+class SelectFilesButton(widgets.Button):
+    """A file widget that leverages tkinter.filedialog."""
+    # see https: // codereview.stackexchange.com / questions / 162920 / file - selection - button - for -jupyter - notebook
+    def __init__(self, out, CallBack=None,Load=True):
+        super(SelectFilesButton, self).__init__()
+        # Add the selected_files trait
+        self.add_traits(files=traitlets.traitlets.List())
+        # Create the button.
+        if Load:
+            self.description = "Load"
+        else:
+            self.description = "Save"
+        self.isLoad=Load
+        self.icon = "square-o"
+        self.style.button_color = "orange"
+        # Set on click behavior.
+        self.on_click(self.select_files)
+        self.CallBack = CallBack
+        self.out = widgets.Output()
+
+    @staticmethod
+    def select_files(b):
+        """Generate instance of tkinter.filedialog.
+
+        Parameters
+        ----------
+        b : obj:
+            An instance of ipywidgets.widgets.Button
+        """
+        with b.out:
+            try:
+                # Create Tk root
+                root = Tk()
+                # Hide the main window
+                root.withdraw()
+                # Raise the root to the top of all windows.
+                root.call('wm', 'attributes', '.', '-topmost', True)
+                # List of selected files will be set to b.value
+                if b.isLoad:
+                    filename = filedialog.askopenfilename() # multiple=False
+                else:
+                    filename = filedialog.asksaveasfilename()
+                # print('Load/Save Dialog finished')
+
+                #b.description = "Files Selected"
+                #b.icon = "check-square-o"
+                #b.style.button_color = "lightgreen"
+                if b.CallBack is not None:
+                    #print('Invoking CallBack')
+                    b.CallBack(filename)
+                #else:
+                    #print('no CallBack')
+            except:
+                #print('Problem in Load/Save')
+                #print('File is'+b.files)
+                pass
+
 cumulPrefix = '_cumul_'  # this is used as a keyword to identify whether this plot was already plotted
 
+def getNumArgs(myFkt):
+    from inspect import signature
+    sig = signature(myFkt)
+    return len(sig.parameters)
 
 class DataLoader(object):
     def __init__(self):
@@ -753,6 +820,7 @@ class Model:
         self.State = {}  # dictionary of state variables
         self.Var = {}  # may be variables or lambdas
         self.VarDisplayLog = {}  # display this variable with a logarithmic slider
+        self.VarAltAxes = {}  # alternative list of axes numbers to interprete the meaning of this multidimensional variable. This is needed for example for matrices connecting a dimension to itself
         self.rawVar = {}  # saves the raw variables
         self.toRawVar = {}  # stores the inverse functions to initialize the rawVar
         self.toVar = {}  # stores the function to get from the rawVar to the Var
@@ -861,7 +929,7 @@ class Model:
             prodAx = res
         self.State[name] = prodAx
 
-    def newVariables(self, VarList=None, forcePos=True, normalize='max', b2=1.0, overwrite=True, displayLog=True):
+    def newVariables(self, VarList=None, forcePos=True, normalize='max', b2=1.0, overwrite=True, displayLog=True, AltAxes=None):
         if VarList is not None:
             for name, initVal in VarList.items():
                 if name in self.Var:
@@ -898,6 +966,7 @@ class Model:
                 self.Var[name] = lambda: toVarFkt3(rawvar)
                 self.VarDisplayLog[name] = displayLog
                 self.Original[name] = rawvar.numpy()  # store the original
+                self.VarAltAxes[name] = AltAxes
 
         return self.Var[name]  # return the last variable for convenience
 
@@ -1012,13 +1081,23 @@ class Model:
                     raise ValueError("Unknown queue source: " + str(queueSrc) + ". Please select an axis or \"total\".")
             if hasTime:
                 if callable(rate):
-                    rate = rate(time)  # calculate the transfer for this rate equation
+                    if getNumArgs(rate) > 1:
+                        transferred = rate(time,fromState)  # calculate the transfer for this rate equation
+                    else:
+                        rate = rate(time)  # calculate the transfer for this rate equation
+                        transferred = fromState * rate  # calculate the transfer for this rate equation
                 else:
                     tf.print("WARNING: hasTime is True, but the rate is not callable!")
+                    transferred = fromState * rate  # calculate the transfer for this rate equation
             else:
                 if callable(rate):
-                    rate = rate()  # calculate the transfer for this rate equation
-            transferred = fromState * rate  # calculate the transfer for this rate equation
+                    if getNumArgs(rate) > 0:
+                        transferred = rate(fromState)  # calculate the transfer for this rate equation
+                    else:
+                        rate = rate()  # calculate the transfer for this rate equation
+                        transferred = fromState * rate  # calculate the transfer for this rate equation
+                else:
+                    transferred = fromState * rate  # calculate the transfer for this rate equation
             if higherOrder is not None:
                 for hState in higherOrder:
                     if hoSumDims is None:
@@ -1188,8 +1267,9 @@ class Model:
 
     @tf.function
     def doBuildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10, oparam={"noiseModel": "Gaussian"}):
-        # print("tracing doBuildModel")
+        print("tracing doBuildModel")
         # tf.print("running doBuildModel")
+        timeStart = time.time()
         finalState = self.traceModel(Tmax)
         Loss = None
         for predictionName, measured in dictToFit.items():
@@ -1244,6 +1324,8 @@ class Model:
                 Loss = thisLoss
             else:
                 Loss = Loss + thisLoss
+        timeEnd = time.time()
+        print('Model build finished: '+str(timeEnd-timeStart)+'s')
         return Loss, self.ResultVals, self.Progression
 
     def buildModel(self, dictToFit, Tmax, FitStart=0, FitEnd=1e10):
@@ -1313,6 +1395,10 @@ class Model:
             verbose=False, lossScale=None, FitStart=0, FitEnd=1e10, regularizations=None):
         # if "normFac" not in oparam:
         #     oparam["normFac"] = "max"
+        if self.Loss is None or self.Loss==[]:
+            needsRebuild = True
+        else:
+            needsRebuild = False
         if regularizations is None:
             regularizations = self.Regularizations
         if self.FitButton is not None:
@@ -1326,6 +1412,8 @@ class Model:
 
         if "learning_rate" not in oparam:
             oparam["learning_rate"] = None
+        if "noiseModel" not in oparam:
+            oparam["noiseModel"] = 'Gaussian'
 
         if self.FitOptimLambdaWidget is not None: # overwrite call choice for method
             oparam["learning_rate"] = self.FitOptimLambdaWidget.value
@@ -1343,34 +1431,45 @@ class Model:
             otype = self.FitOptimChoiceWidget.options[self.FitOptimChoiceWidget.value][0]
 
         if self.FitLossChoiceWidget is not None:
-            oparam['noiseModel'] = self.FitLossChoiceWidget.options[self.FitLossChoiceWidget.value][0]
-            # print('rebuilt model with noise Model: '+oparam['noiseModel'])
-            loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam, FitStart=FitStart, FitEnd=FitEnd)
-        else:
-            loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
+            mylossFkt = self.FitLossChoiceWidget.options[self.FitLossChoiceWidget.value][0]
+            if mylossFkt!=oparam['noiseModel']:
+                oparam['noiseModel'] = mylossFkt
+                needsRebuild=True
+            else:
+                print('same  model reusing compiled model: '+oparam['noiseModel'])
+            # loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam)
 
         FitVars = [self.rawVar[varN] for varN in self.FitVars]
-        # if lossScale == "max":
-        #     lossScale = np.max(data_dict)
-        if lossScale is not None:
-            loss_fnOnly = lambda: loss_fn()[0] / lossScale
+        if needsRebuild:
+            print('rebuilt model with noise Model: '+oparam['noiseModel'])
+            loss_fn = lambda: self.doBuildModel(data_dict, Tmax, oparam=oparam, FitStart=FitStart, FitEnd=FitEnd)
+            # if lossScale == "max":
+            #     lossScale = np.max(data_dict)
+            if lossScale is not None:
+                loss_fnOnly = lambda: loss_fn()[0] / lossScale
+            else:
+                loss_fnOnly = lambda: loss_fn()[0]
+                lossScale = 1.0
+            result_dict = lambda: loss_fn()[1]
+            progression_dict = lambda: loss_fn()[2]
+            for reg in regularizations:
+                regN = reg[0]
+                weight = self.Var[reg[1]]
+                var = self.Var[reg[2]]
+                if regN == "TV":
+                    loss_fnOnly = self.regTV(weight, var, loss_fnOnly)
+            self.Loss = loss_fnOnly
+            self.ResultDict = result_dict
+            self.ProgressDict = progression_dict
         else:
-            loss_fnOnly = lambda: loss_fn()[0]
-            lossScale = 1.0
-        result_dict = lambda: loss_fn()[1]
-        progression_dict = lambda: loss_fn()[2]
-
-        for reg in regularizations:
-            regN = reg[0]
-            weight = self.Var[reg[1]]
-            var = self.Var[reg[2]]
-            if regN == "TV":
-                loss_fnOnly = self.regTV(weight, var, loss_fnOnly)
-
-        self.Loss = loss_fnOnly
-
+            loss_fnOnly = self.Loss
+            result_dict = self.ResultDict
+            progression_dict = self.ProgressDict
+            # opt = self.opt
         opt = optimizer(loss_fnOnly, otype=otype, oparam=oparam, NIter=NIter, var_list=FitVars, verbose=verbose)
         opt.optName = otype  # just to store this
+        self.opt = opt
+
         if NIter > 0:
             if self.FitLossWidget is not None:
                 with self.FitLossWidget:  # redirect the output
@@ -1657,7 +1756,7 @@ class Model:
                 else:
                     color = next(colors)
                     x = self.getDates(Dates, toPlot)
-                    if labels == [] or labels == [[]]:
+                    if labels == [] or labels[0].shape == (0,): # labels == [[]]:
                         labels = [[dictN]]
                     self.plotB(self.DataDict[FigureIdx], x, toPlot, name=resN + "_" + dictN + "_" + labels[0][0], withDots=True, color=color, line_dash=style, allowCumul=allowCumul)
             n += 1
@@ -1969,6 +2068,32 @@ class Model:
         # self.WidgetDict[varN] = (valueWidget, dropWidget)
         return widget
 
+    def getVarValueDict(self):
+        vals={}
+        for vname,v in self.rawVar.items():
+            vals[vname]=v.numpy()
+        return vals
+
+    def setVarByValueDict(self, vals):
+        for vname,v in self.rawVar.items():
+            try:
+                val = vals[vname]
+                v.assign(val)
+            except:
+                print('Could not find an entry for variable '+vname)
+
+    def SaveVars(self, filename):
+        print('Saving file: '+filename)
+        vals = self.getVarValueDict()
+        np.save(filename, vals)
+        return
+
+    def LoadVars(self, filename):
+        print('Loading file: '+filename)
+        vals = np.load(filename, allow_pickle=True).item()
+        self.setVarByValueDict(vals)
+        return
+
     def getGUI(self, fitVars=None, nx=3, showResults=None, doFit=None, Dates=None):
         from ipywidgets import widgets, Layout
         from IPython.display import display
@@ -1986,17 +2111,25 @@ class Model:
         horizontalList = []
         px = 0
 
-        for varN in fitVars:
+        for varN in fitVars: # this loop builds the controllers for each variable that can be used to fit
             var = self.Var[varN]().numpy()
             if var.ndim > 0 and np.prod(np.array(var.shape)) > 1:
                 # mydim = var.ndim - np.nonzero(np.array(var.shape) - 1)[0][0]
                 allDrop = []
+                altAxes = self.VarAltAxes[varN]
                 for mydim in range(len(var.shape)):
                     if var.shape[mydim]>1:
                         if mydim == 0:
                             regdim = -1
                         else:
                             regdim = var.ndim-mydim - 1
+                        if altAxes is not None:
+                            regdim = altAxes[mydim]
+                            if isinstance(regdim,str):
+                                try:
+                                    regdim = self.Axes[regdim].curAxis-1  # convert name to axis dimension
+                                except:
+                                    raise ValueError('Cound not find axis: '+regdim)
                         ax = self.RegisteredAxes[regdim]
                         if ax.Labels is None:
                             options = [(str(d), d) for d in range(np.prod(ax.shape))]
@@ -2052,6 +2185,16 @@ class Model:
             PlotWidget.on_click(showResults)
             lastRow.append(PlotWidget)
             lastRow.append(radioCumul)
+        out = widgets.Output()
+        LoadWidget = SelectFilesButton(out,CallBack=self.LoadVars, Load=True)
+        widgets.VBox([LoadWidget, out])
+        # LoadWidget = widgets.Button(description='Load')
+        # LoadWidget.on_click(self.LoadVars)
+        lastRow.append(LoadWidget)
+        SaveWidget = SelectFilesButton(out,CallBack=self.SaveVars,Load=False) # description='Save'
+        # SaveWidget.on_click(self.SaveVars)
+        widgets.VBox([SaveWidget, out])
+        lastRow.append(SaveWidget)
         ResetWidget = widgets.Button(description='Reset')
         ResetWidget.on_click(self.restoreOriginal)
         ResetWidget.observe(self.updateAllWidgets)

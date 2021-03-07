@@ -7,7 +7,7 @@ import numpy as np
 import sys
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from Corona.LoadData import loadData, preprocessData
+from Corona.LoadData import loadData, preprocessData, keepAxisEntries, cutToDates
 from Corona.CoronaModel import CoronaDelayModel, plotTotalCases
 from bokeh.io import push_notebook, show, output_notebook
 from correct_deaths_new import PreprocessDeaths
@@ -33,12 +33,16 @@ if DataStruct == 'Rainer':
 usePreprocessed = True # use the specially preprocessed RKI Data
 SumAges = False
 SumGender = True
-TimeRange =  [30,90] # TimeRange = None
+correctDeaths = True
+TimeRange = None # All data
+# TimeRange =  [30,90] # First Wave
+# TimeRange =  [340,340+60] # Second Wave
 
-Filename = basePath + sep +'..'+ sep + r'Data' + sep + 'PreprocessedMeasured_A'+str(SumAges)+'_G'+str(SumGender)
-if True:  # reload data (or use preprocessed)
-    if True:
-        AllMeasured = loadData(useThuringia = False, pullData=False, usePreprocessed=True)
+Filename = basePath + sep +'..'+ sep + r'Data' + sep + 'PreprocessedMeasured_A'+str(SumAges)+'_G'+str(SumGender)+'_D'+str(correctDeaths)
+if False:  # reload data (or use preprocessed)
+    if True:  # Thuringia
+        AllMeasured = loadData(useThuringia = False, pullData=False, correctDeaths=correctDeaths, usePreprocessed=True)
+        print("Michael's Database was loaded.")
         if False:
             ExampleRegions = ['SK Gera', 'SK Jena', 'LK Nordhausen', 'SK Erfurt', 'SK Suhl', 'LK Weimarer Land', 'SK Weimar', 'LK Greiz',
                               'LK Schmalkalden-Meiningen', 'LK Eichsfeld', 'LK Sömmerda', 'LK Hildburghausen',
@@ -63,6 +67,8 @@ if True:  # reload data (or use preprocessed)
     np.save(Filename, AllMeasured)
 else:
     AllMeasured = np.load(Filename + '.npy', allow_pickle=True).item()
+    AllMeasured = cutToDates(AllMeasured,'01.09.2020',None)
+    # AllMeasured = keepAxisEntries(AllMeasured,'Ages',-2,'A35-A59')
 
 AllMeasured['Cases'] = AllMeasured['Cases'][:,np.newaxis,:,:,:]  # to account for the (empty) Disease Progression axis
 AllMeasured['Dead'] = AllMeasured['Dead'][:,np.newaxis,:,:,:]
@@ -77,6 +83,7 @@ M.plotMatplotlib = True
 M.doFit(0)
 M.showStates(MinusOne=['S'])
 M.DataDict={}
+M.getVarValueDict()
 g = M.getGUI(showResults=M.showSimRes, doFit=M.doFit)
 
 # M.showResultsBokeh()

@@ -28,12 +28,13 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
         df = pd.read_excel(basePath + r"\Examples\bev_lk.xlsx")  # support information about the population
         AllMeasured.update(addOtherData(Thuringia, df, day1, numdays)) # adds the supplemental information
     else:
-        if usePreprocessed:
+        if usePreprocessed:  # Michael's Datastructure
             import sys
             mydir = os.path.dirname(os.path.realpath(__file__))
             sys.path.insert(1, mydir + os.sep + '..' + os.sep + '..' + os.sep + 'RKI_COVID19')  # relative path from Examples to the RKI_COVID19 folder
+            DataDir = 'C:\\NoBackup\\Data\\NextCloudUni\\COVID-Data\\'
             from RKI_COVID19_Collection import RKI_COVID19_Collection
-            db = RKI_COVID19_Collection()
+            db = RKI_COVID19_Collection() # if empty the environment is used. processed_data\\data_DE_RKI_processed\\data_DE_RKI_processed\\RKI_COVID19_processed.csv
 
             # shows the list of dates
             # db.print_Statistics()
@@ -43,6 +44,9 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
             print('loading preprocessed data ...')
             db.load_df()
             print('.done\n')
+            # delete all cases w/o symptom onset:
+            # db.pdf.drop(db.pdf[db.pdf.IstErkrankungsbeginn == 0].index, inplace=True)
+
             AllMeasured, day1, numdays = imputation(db.pdf, useRefDead=UseRefDead, correctDeaths=correctDeaths)
             df = pd.read_excel(basePath + sep + r"Examples" + sep + "bev_lk.xlsx")  # support information about the population
             AllMeasured.update(addOtherData(db.pdf, df, day1, numdays))  # adds the supplemental information
@@ -80,6 +84,8 @@ def loadData(filename = None, useThuringia = True, pullData=False, lastDate=None
         AllMeasured['Region'] = "Germany"
     AgePop = np.array([(3.88 + 0.78), 6.62, 2.31 + 2.59 + 3.72 + 15.84, 23.9, 15.49, 7.88, 0.001], stm.CalcFloatStr) # The last ist just something for "unkown"?
     AgePop /= np.sum(AgePop)
+
+
     PopM = AgePop[np.newaxis,:] * AllMeasured['PopM'][:,np.newaxis]
     PopW = AgePop[np.newaxis,:] * AllMeasured['PopW'][:,np.newaxis]
     PopU = PopW * 0.00001  # just to have the unkown population not empty
@@ -128,13 +134,14 @@ def addOtherData(data, df, day1, numDays):
         Area[lk] = mySuppl['Flaeche in km2']
         PopW[lk] = mySuppl['Bev. W']
         PopM[lk] = mySuppl['Bev. M']
+
     labels, levelsGe = data['Geschlecht'].factorize()
-    data['GeschlechtID'] = labels
-    Gender = levelsGe
+    data['GeschlechtID'] = labels # getLabels(data,'Geschlecht') # labels
+    Gender = getLabels(data,'Geschlecht')
 
     labels, levelsAge = data['Altersgruppe'].factorize()
     data['AgeID'] = labels
-    Ages = levelsAge
+    Ages = getLabels(data,'Altersgruppe')
     measured = {'LKs': levelsLK.to_list(), 'IDs': labelsLK, 'Dates': Dates, 'Gender': Gender, 'Ages': Ages,
                 'PopM': PopM, 'PopW':PopW, 'Area': Area}
     return measured
@@ -278,6 +285,63 @@ def binThuringia(data, lastDate=None):
                 # 'CumulDead': CumulDead,'CumulHospitalized': CumulHospitalized}
     return measured, firstDate, numDays
 
+def cutToDates(AllMeasured, BeginDate=None, EndDate=None):  # The EndDate is included!
+    if BeginDate is None:
+        BeginDate = AllMeasured['Dates'][0]
+        print('BeginDate:'+BeginDate)
+    if EndDate is None:
+        EndDate = AllMeasured['Dates'][-1]
+        print('EndDate:'+EndDate)
+    d = AllMeasured['Dates'] == BeginDate
+    firstInd = np.nonzero(d)[0]
+    if firstInd.shape == ():
+        raise ValueError('BeginDate not in list. Choose data format DD.MM.JJJJ')
+    else:
+        firstInd=firstInd[0]
+    d = AllMeasured['Dates'] == EndDate
+    lastInd = np.nonzero(d)[0]
+    if lastInd.shape == ():
+        raise ValueError('EndDate not in list. Choose data format DD.MM.JJJJ')
+    else:
+        lastInd=lastInd[0]
+    return cutToIdx(AllMeasured,firstInd,lastInd+1)
+
+def cutToIdx(AllMeasured,BeginIdx=0,EndIdx=-1):
+    AllMeasured['Cases'] = AllMeasured['Cases'][BeginIdx:EndIdx, :, :, :]
+    AllMeasured['Dead'] = AllMeasured['Dead'][BeginIdx:EndIdx, :, :, :]
+    AllMeasured['Dates'] = AllMeasured['Dates'][BeginIdx:EndIdx]
+
+    if 'Hospitalized' in AllMeasured:
+        AllMeasured['Hospitalized'] = AllMeasured['Hospitalized'][BeginIdx:EndIdx, :, :, :]
+    if 'Cured' in AllMeasured:
+        AllMeasured['Cured'] = AllMeasured['Cured'][BeginIdx:EndIdx, :, :, :]
+    return AllMeasured
+
+def keepAxisEntries(AllMeasured,AxisName, AxisNum, ListToKeep):
+    newList = []
+    if isinstance(ListToKeep, str):
+        ListToKeep=[ListToKeep]
+    for item in ListToKeep:
+        if isinstance(item, str):
+            idx = np.nonzero(AllMeasured[AxisName] == item)[0]
+            if idx.shape == () or idx.shape == (0,):
+                raise ValueError("Item " + item + " not found in List " + AxisName)
+            else:
+                idx=idx[0]
+            newList.append(idx)
+        else:
+            newList.append(item)
+
+    AllMeasured['Cases'] = np.take(AllMeasured['Cases'],newList, axis=AxisNum)
+    AllMeasured['Dead'] = np.take(AllMeasured['Dead'],newList, axis=AxisNum)
+    AllMeasured['Population'] = np.take(AllMeasured['Population'],newList, axis=AxisNum)
+    if 'Hospitalized' in AllMeasured:
+        AllMeasured['Hospitalized'] = np.take(AllMeasured['Hospitalized'], newList, axis=AxisNum)
+    if 'Cured' in AllMeasured:
+        AllMeasured['Cured'] = np.take(AllMeasured['Cured'], newList, axis=AxisNum)
+
+    AllMeasured[AxisName] = AllMeasured[AxisName][newList]
+    return AllMeasured
 
 def preprocessData(AllMeasured, CorrectWeekdays=False, ReduceDistricts=('LK Greiz', 'SK Gera', 'SK Jena'), ReduceAges=None, ReduceGender = None, SumDistricts=False, SumAges=True, SumGender=True, discardNoGender=True, discardNoAge=True, TimeRange=None):
     # LKs.index('SK Jena'), SK Gera, LK Nordhausen, SK Erfurt, SK Suhl, LK Weimarer Land, SK Weimar
@@ -392,14 +456,18 @@ def toDay(timeInMs):
 
 def getLabels(rki_data, label):
     try:
-        labelsLK, levelsLK = rki_data[label].factorize()
-        labels = levelsLK.tolist()  # to be the same as in the addData routine
+        return list(rki_data[label].cat.categories)
+    except:
+        print('Warning: Axes '+label+' has no categories. This may mess up the population order!')
+        try:
+            labelsLK, levelsLK = rki_data[label].factorize()
+            labels = levelsLK.tolist()  # to be the same as in the addData routine
         # labels = rki_data[label].unique()
         # labels.sort();
         # labels = labels.tolist()
-    except KeyError:
-        labels = ['BRD']
-    return labels
+        except KeyError:
+            labels = ['BRD']
+        return labels
 
 
 def imputation(rki_data, doPlot=True, whichDate='Refdatum', useRefDead=True, correctDeaths=False, discardLargeDelay=True):
